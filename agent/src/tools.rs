@@ -65,6 +65,16 @@ pub fn definitions() -> Vec<ToolDef> {
                 "class_name": {"type": "string", "description": "e.g. CharacterBody2D, Label, Timer"},
                 "filter": {"type": "string", "description": "Optional word to only show matching members, e.g. velocity"}},
                 "required": ["class_name"]}) },
+        ToolDef { name: "asset_info", description: "Describe a file the creator added: an image's size and whether it looks like a sprite sheet, a 3D model's parts and animations, a sound's length, a scene's nodes. Works on folders too.",
+            schema: json!({"type": "object", "properties": {
+                "path": {"type": "string", "description": "e.g. assets/hero.png or design/concept"}}, "required": ["path"]}) },
+        ToolDef { name: "look_at_image", description: "Look at an image (concept art, a sprite, a screenshot) and get a description of what it shows. Ask a specific question when you have one.",
+            schema: json!({"type": "object", "properties": {
+                "path": {"type": "string", "description": "e.g. design/concept/forest.png"},
+                "question": {"type": "string", "description": "Optional: what to look for, e.g. 'What colors and mood does this have?'"}}, "required": ["path"]}) },
+        ToolDef { name: "set_mode", description: "Switch how you work with the creator: 'learning' (teach them as you build together) or 'autonomous' (you build, they direct). Only when they ask for it.",
+            schema: json!({"type": "object", "properties": {
+                "mode": {"type": "string", "enum": ["learning", "autonomous"]}}, "required": ["mode"]}) },
     ]
 }
 
@@ -79,6 +89,9 @@ pub fn summary(name: &str, args: &Value) -> String {
         "build_rust" => "Building the Rust code".into(),
         "run_game" => format!("Playtesting the game ({} s)", args["seconds"].as_f64().unwrap_or(5.0)),
         "class_info" => format!("Looking up {}", args["class_name"].as_str().unwrap_or("?")),
+        "asset_info" => format!("Inspecting {p}"),
+        "look_at_image" => format!("Looking at {p}"),
+        "set_mode" => format!("Switching to {} mode", args["mode"].as_str().unwrap_or("?")),
         other => format!("Using {other}"),
     }
 }
@@ -97,6 +110,15 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 impl Project {
+    /// Load an image for look_at_image: (mime type, base64 data).
+    pub fn image(&self, path: &str) -> Result<(&'static str, String), String> {
+        let mime = crate::assets::mime_of(path).ok_or_else(|| format!("{path} isn't a PNG, JPG, WebP or GIF image."))?;
+        let p = self.resolve(path, false)?;
+        let b = fs::read(&p).map_err(|e| format!("Can't read {path}: {e}"))?;
+        if b.len() > 20 << 20 { return Err(format!("{path} is over 20 MB; save a smaller copy to look at.")); }
+        Ok((mime, crate::llm::base64(&b)))
+    }
+
     pub fn run(&self, name: &str, args: &Value) -> Outcome {
         let path = args["path"].as_str().unwrap_or("");
         let mut out = self.run_inner(name, args, path);
@@ -116,6 +138,10 @@ impl Project {
     fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
+            "asset_info" => match self.resolve(path, false) {
+                Ok(p) => match crate::assets::info(&p, path) { Ok(t) => ok(t), Err(e) => fail(e) },
+                Err(e) => fail(e),
+            },
             "read_file" => match self.resolve(path, false) {
                 Ok(p) => match fs::read_to_string(&p) {
                     Ok(t) => ok(truncate(&t, MAX_RESULT)),

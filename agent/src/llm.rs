@@ -293,3 +293,55 @@ fn anthropic(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], sto
     }
     Ok(turn)
 }
+
+// ---------------------------------------------------------------- Looking at images
+
+/// Ask a vision-capable model about one image (concept art, a sprite, a screenshot).
+/// Ollama uses a separate local vision model; cloud providers use the chosen model itself.
+pub fn describe_image(cfg: &Config, vision_model: &str, mime: &str, b64: &str, question: &str) -> Result<String, String> {
+    match cfg.provider.as_str() {
+        "anthropic" => {
+            let body = json!({"model": cfg.model, "max_tokens": 1500, "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
+                {"type": "text", "text": question}]}]});
+            let base = if cfg.base_url.is_empty() { "https://api.anthropic.com" } else { &cfg.base_url };
+            let req = agent().post(&url(base, "v1/messages")).set("x-api-key", &cfg.api_key).set("anthropic-version", "2023-06-01");
+            let v: Value = post(req, &body, "the AI service")?.into_json().map_err(|e| e.to_string())?;
+            Ok(v["content"].as_array().map(|a| a.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("")).unwrap_or_default())
+        }
+        "openai" => {
+            let body = json!({"model": cfg.model, "messages": [{"role": "user", "content": [
+                {"type": "text", "text": question},
+                {"type": "image_url", "image_url": {"url": format!("data:{mime};base64,{b64}")}}]}]});
+            let base = if cfg.base_url.is_empty() { "https://api.openai.com/v1" } else { &cfg.base_url };
+            let mut req = agent().post(&url(base, "chat/completions"));
+            if !cfg.api_key.is_empty() { req = req.set("authorization", &format!("Bearer {}", cfg.api_key)); }
+            let v: Value = post(req, &body, "the AI service")?.into_json().map_err(|e| e.to_string())?;
+            Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+        }
+        _ => {
+            let base = if cfg.base_url.is_empty() { "http://localhost:11434" } else { cfg.base_url.trim_end_matches("/v1") };
+            let body = json!({"model": vision_model, "stream": false, "think": false, "keep_alive": "30s",
+                "messages": [{"role": "user", "content": question, "images": [b64]}],
+                "options": {"num_ctx": 8192, "temperature": 0.2, "num_predict": 1200}});
+            let v: Value = post(agent().post(&url(base, "api/chat")), &body, "Ollama")
+                .map_err(|e| if e.contains("HTTP 404") {
+                    format!("The image model {vision_model} isn't installed. Install it with `ollama pull {vision_model}`.")
+                } else { e })?
+                .into_json().map_err(|e| e.to_string())?;
+            Ok(v["message"]["content"].as_str().unwrap_or("").trim().to_string())
+        }
+    }
+}
+
+pub fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() { out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char); } else { out.push('='); }
+        }
+    }
+    out
+}

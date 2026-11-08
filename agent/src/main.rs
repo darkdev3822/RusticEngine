@@ -1,14 +1,15 @@
 //! rustic-agent: Ember, the AI guide behind RusticEngine's AI Guide dock.
 //!
 //! The editor starts this program and talks to it with JSON lines.
-//!   editor -> agent: {"type":"config", "provider", "base_url", "model", "api_key", "context"}
+//!   editor -> agent: {"type":"config", "provider", "base_url", "model", "api_key", "context", "mode", "vision_model"}
 //!                    {"type":"user", "text", "context"}  {"type":"reset"}  {"type":"stop"}
 //!   agent -> editor: {"type":"ready"} {"type":"text","delta"} {"type":"tool_start","name","summary"}
 //!                    {"type":"tool_end","name","ok","summary"} {"type":"files_changed","path"}
-//!                    {"type":"rust_built"} {"type":"done"} {"type":"error","message"}
+//!                    {"type":"rust_built"} {"type":"mode","mode"} {"type":"done"} {"type":"error","message"}
 //!
 //! Also usable from a terminal for testing:
 //!   rustic-agent --project DIR --engine PATH --provider ollama --model qwen2.5-coder:7b --ask "make the player jump"
+mod assets;
 mod llm;
 mod tools;
 
@@ -22,6 +23,9 @@ use serde_json::{Value, json};
 use llm::{Config, Msg};
 
 const SYSTEM_PROMPT: &str = include_str!("../prompt/ember.md");
+const MODE_LEARNING: &str = include_str!("../prompt/mode_learning.md");
+const MODE_AUTONOMOUS: &str = include_str!("../prompt/mode_autonomous.md");
+const DEFAULT_VISION_MODEL: &str = "qwen3-vl:8b";
 const MAX_STEPS: usize = 30;
 /// Rough history budget in characters (~4 chars per token), leaving room for the system prompt and reply.
 const HISTORY_BUDGET_CHARS: usize = 48_000;
@@ -110,9 +114,34 @@ struct Session {
     project: tools::Project,
     history: Vec<Msg>,
     stop: Arc<AtomicBool>,
+    /// "learning" or "autonomous".
+    mode: String,
+    vision_model: String,
 }
 
 impl Session {
+    /// The base prompt, plus how this creator wants to work, plus what they've told us about their game.
+    fn system_prompt(&self) -> String {
+        let mode = if self.mode == "learning" { MODE_LEARNING } else { MODE_AUTONOMOUS };
+        format!("{SYSTEM_PROMPT}\n{mode}\n# This project\n{}", assets::design_context(&self.project.root))
+    }
+
+    fn look_at_image(&self, args: &Value) -> tools::Outcome {
+        let path = args["path"].as_str().unwrap_or("");
+        let fail = |m: String| tools::Outcome { ok: false, content: m, files_changed: false, rust_built: false, raw: String::new() };
+        let (mime, b64) = match self.project.image(path) { Ok(x) => x, Err(e) => return fail(e) };
+        let q = args["question"].as_str().filter(|q| !q.trim().is_empty()).unwrap_or(
+            "Describe this image for a game developer: what it shows, the art style, the main colors (as hex codes), \
+             the mood, shapes and proportions, and anything that hints at gameplay or setting.");
+        let q = format!("{q}\nDescribe only what you can actually see. Be concrete and brief (under 200 words).");
+        match llm::describe_image(&self.cfg, &self.vision_model, mime, &b64, &q) {
+            Ok(t) if !t.trim().is_empty() => tools::Outcome { ok: true, content: format!("What {path} shows:\n{t}"),
+                files_changed: false, rust_built: false, raw: String::new() },
+            Ok(_) => fail("The image model gave no answer.".into()),
+            Err(e) => fail(e),
+        }
+    }
+
     fn handle_user(&mut self, text: &str, context: &str) {
         self.stop.store(false, Ordering::Relaxed);
         let content = if context.is_empty() { text.to_string() } else { format!("{text}\n\n[Editor context: {context}]") };
@@ -126,7 +155,8 @@ impl Session {
         for _ in 0..MAX_STEPS {
             trim_history(&mut self.history);
             let mut on_text = |d: &str| emit(json!({"type": "text", "delta": d}));
-            let turn = match llm::chat(&self.cfg, SYSTEM_PROMPT, &self.history, &defs, &self.stop, &mut on_text) {
+            let system = self.system_prompt();
+            let turn = match llm::chat(&self.cfg, &system, &self.history, &defs, &self.stop, &mut on_text) {
                 Ok(t) => t,
                 Err(e) => {
                     emit(json!({"type": "error", "message": e}));
@@ -187,6 +217,13 @@ impl Session {
                 emit(json!({"type": "tool_start", "name": call.name, "summary": summary}));
                 let outcome = if self.stop.load(Ordering::Relaxed) {
                     tools::Outcome { ok: false, content: "Stopped by the user.".into(), files_changed: false, rust_built: false, raw: String::new() }
+                } else if call.name == "look_at_image" {
+                    self.look_at_image(&call.args)
+                } else if call.name == "set_mode" {
+                    let m = if call.args["mode"].as_str() == Some("learning") { "learning" } else { "autonomous" };
+                    self.mode = m.to_string();
+                    emit(json!({"type": "mode", "mode": m}));
+                    tools::Outcome { ok: true, content: format!("Now in {m} mode."), files_changed: false, rust_built: false, raw: String::new() }
                 } else {
                     self.project.run(&call.name, &call.args)
                 };
@@ -216,7 +253,7 @@ impl Session {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--print-prompt") {
-        print!("{SYSTEM_PROMPT}");
+        print!("{SYSTEM_PROMPT}\n{}", if arg(&args, "--mode").as_deref() == Some("learning") { MODE_LEARNING } else { MODE_AUTONOMOUS });
         return;
     }
     let root = PathBuf::from(arg(&args, "--project").unwrap_or_else(|| ".".into()));
@@ -235,7 +272,9 @@ fn main() {
         context: arg(&args, "--context").and_then(|s| s.parse().ok()).unwrap_or(16384),
     };
     let stop = Arc::new(AtomicBool::new(false));
-    let mut session = Session { cfg, project, history: vec![], stop: stop.clone() };
+    let mode = arg(&args, "--mode").unwrap_or_else(|| "autonomous".into());
+    let vision_model = arg(&args, "--vision-model").unwrap_or_else(|| DEFAULT_VISION_MODEL.into());
+    let mut session = Session { cfg, project, history: vec![], stop: stop.clone(), mode, vision_model };
 
     // Run a single tool and print its outcome (used to generate training data from real runs).
     if let Some(tool) = arg(&args, "--tool") {
@@ -283,6 +322,8 @@ fn main() {
                     api_key: s("api_key"),
                     context: v["context"].as_u64().unwrap_or(16384) as u32,
                 };
+                if let Some(m) = v["mode"].as_str().filter(|m| !m.is_empty()) { session.mode = m.to_string(); }
+                if let Some(m) = v["vision_model"].as_str().filter(|m| !m.is_empty()) { session.vision_model = m.to_string(); }
             }
             "user" => session.handle_user(v["text"].as_str().unwrap_or(""), v["context"].as_str().unwrap_or("")),
             "reset" => session.history.clear(),
