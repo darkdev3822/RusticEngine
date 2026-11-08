@@ -39,6 +39,13 @@ def main():
     ap.add_argument("--check", action="store_true", help="only render + measure the dataset")
     args = ap.parse_args()
 
+    # Ollama keeps models in VRAM for a while after use; training needs the whole card.
+    import subprocess
+    ps = subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout.splitlines()[1:]
+    for line in ps:
+        if line.split():
+            subprocess.run(["ollama", "stop", line.split()[0]], capture_output=True)
+
     from unsloth import FastLanguageModel  # noqa: E402  (must import before transformers)
     from unsloth.chat_templates import train_on_responses_only
     from datasets import Dataset

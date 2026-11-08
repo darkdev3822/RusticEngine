@@ -6,7 +6,7 @@ For each task: fresh starter project -> run rustic-agent one-shot with the model
   looked: did it read/list before its first write?
   ran:    does a headless playtest run without errors?
   tools:  number of tool calls; secs: wall time
-Usage: python3 eval_agent.py MODEL [MODEL...]   (Ollama model names)
+Usage: python3 eval_agent.py [--repeat N] MODEL [MODEL...]   (Ollama model names)
 """
 import json, shutil, subprocess, sys, time
 from pathlib import Path
@@ -81,9 +81,13 @@ def run_task(model: str, task: str, idx: int) -> dict:
 
 def main():
     out = Path(__file__).resolve().parent / "data/eval_results.jsonl"
-    for model in sys.argv[1:]:
+    args = sys.argv[1:]
+    repeat = 1
+    if "--repeat" in args:
+        i = args.index("--repeat"); repeat = int(args[i + 1]); del args[i:i + 2]
+    for model in args:
         rows = []
-        for i, task in enumerate(TASKS):
+        for i, task in [(i, t) for _ in range(repeat) for i, t in enumerate(TASKS)]:
             r = run_task(model, task, i)
             rows.append(r)
             with out.open("a") as fh:

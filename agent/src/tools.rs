@@ -20,6 +20,16 @@ pub struct Outcome {
     pub content: String,
     pub files_changed: bool,
     pub rust_built: bool,
+    /// Full compiler output (build_rust only; not shown to the model).
+    pub raw: String,
+}
+
+fn with_fixes(mut o: Outcome, fixed: &[String]) -> Outcome {
+    if !fixed.is_empty() {
+        o.content = format!("(Auto-fixed missing imports: {}.)\n{}", fixed.join("; "), o.content);
+        o.files_changed = true;
+    }
+    o
 }
 
 const MAX_RESULT: usize = 12_000;
@@ -74,10 +84,10 @@ pub fn summary(name: &str, args: &Value) -> String {
 }
 
 fn ok(content: impl Into<String>) -> Outcome {
-    Outcome { ok: true, content: content.into(), files_changed: false, rust_built: false }
+    Outcome { ok: true, content: content.into(), files_changed: false, rust_built: false, raw: String::new() }
 }
 fn fail(content: impl Into<String>) -> Outcome {
-    Outcome { ok: false, content: content.into(), files_changed: false, rust_built: false }
+    Outcome { ok: false, content: content.into(), files_changed: false, rust_built: false, raw: String::new() }
 }
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max { return s.to_string(); }
@@ -254,6 +264,91 @@ impl I{base} for {class} {{
     }
 
     pub fn build_rust(&self) -> Outcome {
+        // Missing `use` lines for Godot types are the most common small-model mistake, and purely
+        // mechanical: fix them here (up to twice) instead of spending the user's time on it.
+        let mut fixed: Vec<String> = vec![];
+        for _ in 0..2 {
+            let o = self.build_once();
+            if o.rust_built { return with_fixes(o, &fixed); }
+            let more = self.fix_imports(&o.raw);
+            if more.is_empty() { return with_fixes(o, &fixed); }
+            fixed.extend(more);
+        }
+        with_fixes(self.build_once(), &fixed)
+    }
+
+    /// Add/repair `use` lines for Godot classes, class traits (IFoo) and global enums (Key...) rustc says are missing.
+    fn fix_imports(&self, raw: &str) -> Vec<String> {
+        let Ok(api) = self.api() else { return vec![] };
+        let classes: std::collections::HashSet<String> = api["classes"].as_array().into_iter().flatten()
+            .filter_map(|c| c["name"].as_str().map(String::from)).collect();
+        let enums: std::collections::HashSet<String> = api["global_enums"].as_array().into_iter().flatten()
+            .filter_map(|c| c["name"].as_str().map(String::from)).filter(|n| !n.contains('.')).collect();
+        let path_for = |name: &str| -> Option<String> {
+            if enums.contains(name) { return Some(format!("godot::global::{name}")); }
+            if classes.contains(name) { return Some(format!("godot::classes::{name}")); }
+            if name.len() > 1 && name.starts_with('I') && classes.contains(&name[1..]) { return Some(format!("godot::classes::{name}")); }
+            None
+        };
+        let mut fixes = vec![];
+        let lines: Vec<&str> = raw.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let Some(rest) = line.strip_prefix("error") else { continue };
+            let ticked: Vec<&str> = rest.split('`').skip(1).step_by(2).collect();
+            let Some(file) = lines[i + 1..].iter().take(4).find_map(|l| l.trim_start().strip_prefix("--> "))
+                .and_then(|l| l.split(':').next()) else { continue };
+            let path = self.root.join("rust").join(file);
+            let Ok(src) = fs::read_to_string(&path) else { continue };
+            let new_src = if rest.contains("unresolved import") {
+                // e.g. `godot::classes::Key` -> `godot::global::Key`
+                let Some(bad) = ticked.first() else { continue };
+                let name = bad.rsplit("::").next().unwrap_or("");
+                match path_for(name) {
+                    Some(good) if bad.starts_with("godot::") && good != *bad => {
+                        if src.contains(bad) { src.replace(bad, &good) } else {
+                            // Grouped: `use godot::classes::{Input, Key};` -> drop it from the group, import it on its own.
+                            let module = &bad[..bad.len() - name.len() - 2];
+                            let mut done = false;
+                            let mut out: Vec<String> = src.lines().map(|l| {
+                                let t = l.trim();
+                                if !done && t.starts_with(&format!("use {module}::{{")) {
+                                    let inner = t.trim_start_matches(&format!("use {module}::{{")).trim_end_matches("};");
+                                    let kept: Vec<&str> = inner.split(',').map(str::trim).filter(|x| !x.is_empty() && *x != name).collect();
+                                    if kept.len() < inner.split(',').filter(|x| !x.trim().is_empty()).count() {
+                                        done = true;
+                                        return format!("use {module}::{{{}}};\nuse {good};", kept.join(", "));
+                                    }
+                                }
+                                l.to_string()
+                            }).collect();
+                            if !done { continue }
+                            out.push(String::new());
+                            out.join("\n")
+                        }
+                    }
+                    _ => continue,
+                }
+            } else if rest.contains("cannot find") || rest.contains("undeclared type") {
+                let Some(name) = ticked.first() else { continue };
+                let Some(good) = path_for(name) else { continue };
+                let use_line = format!("use {good};");
+                if src.contains(&use_line) { continue }
+                let mut out: Vec<&str> = src.lines().collect();
+                let at = out.iter().rposition(|l| l.starts_with("use ")).map(|p| p + 1).unwrap_or(0);
+                out.insert(at, &use_line);
+                out.join("\n") + "\n"
+            } else { continue };
+            if new_src != src && fs::write(&path, &new_src).is_ok() {
+                fixes.push(format!("rust/{file}: {}", if rest.contains("unresolved import") {
+                    format!("corrected the import of `{}`", ticked[0].rsplit("::").next().unwrap_or("")) } else {
+                    format!("added `use {};`", path_for(ticked[0]).unwrap_or_default()) }));
+            }
+        }
+        fixes.dedup();
+        fixes
+    }
+
+    fn build_once(&self) -> Outcome {
         let manifest = self.root.join("rust/Cargo.toml");
         if !manifest.exists() { return fail("This project has no Rust code (rust/Cargo.toml is missing)."); }
         let out = Command::new(cargo_path())
@@ -271,6 +366,7 @@ impl I{base} for {class} {{
             fail(format!("Build FAILED. Fix these errors, then build again:\n{detail}"))
         };
         o.rust_built = out.status.success();
+        o.raw = text;
         if o.rust_built && self.install_gdextension() {
             o.files_changed = true;
         }
@@ -356,7 +452,7 @@ impl I{base} for {class} {{
         report += if timed_out { "The game froze and was stopped.\n" } else if crashed { "The game exited with an error.\n" }
                   else if has_errors { "It ran, but reported errors.\n" } else { "It ran without errors.\n" };
         report += if log.is_empty() { "(The game printed nothing.)".to_string() } else { format!("Game output:\n{}", truncate(&log.join("\n"), MAX_RESULT)) }.as_str();
-        Outcome { ok: !(timed_out || crashed || has_errors), content: report, files_changed: false, rust_built: true }
+        Outcome { ok: !(timed_out || crashed || has_errors), content: report, files_changed: false, rust_built: true, raw: String::new() }
     }
 
     fn api(&self) -> Result<Value, String> {

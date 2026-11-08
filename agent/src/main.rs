@@ -186,7 +186,7 @@ impl Session {
                 let summary = tools::summary(&call.name, &call.args);
                 emit(json!({"type": "tool_start", "name": call.name, "summary": summary}));
                 let outcome = if self.stop.load(Ordering::Relaxed) {
-                    tools::Outcome { ok: false, content: "Stopped by the user.".into(), files_changed: false, rust_built: false }
+                    tools::Outcome { ok: false, content: "Stopped by the user.".into(), files_changed: false, rust_built: false, raw: String::new() }
                 } else {
                     self.project.run(&call.name, &call.args)
                 };
