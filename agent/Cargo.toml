@@ -1,0 +1,13 @@
+[package]
+name = "rustic-agent"
+version = "0.1.0"
+edition = "2024"
+description = "Ember: the AI guide behind RusticEngine"
+
+[dependencies]
+ureq = { version = "2", features = ["json"] }
+serde_json = "1"
+
+[profile.release]
+strip = true
+lto = "thin"

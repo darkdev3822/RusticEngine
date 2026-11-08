@@ -5,3 +5,10 @@ build.log
 branding/export/
 *.png
 !branding/*.png
+agent/target/
+training/.venv/
+training/.bootstrap/
+training/hf-cache/
+training/out/
+training/data/
+knowledge/*/target/
