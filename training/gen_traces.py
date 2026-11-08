@@ -6,7 +6,7 @@ comes from actually running rustic-agent's tools on a real RusticEngine project.
 
 Usage: python3 gen_traces.py OUT.jsonl [feature ...]
 """
-import importlib, json, os, random, shutil, subprocess, sys, time
+import importlib, json, os, random, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -79,11 +79,22 @@ def apply_silently(project: Path, name: str):
         tool(project, "edit_file", {"path": path, "old_text": old, "new_text": new})
 
 
+def scene_nodes(text: str) -> set:
+    """{(name, parent)} for every [node ...] header in a .tscn."""
+    out = set()
+    for name, rest in re.findall(r'\[node name="([^"]+)"([^\]]*)\]', text):
+        parent = re.search(r'parent="([^"]*)"', rest)
+        out.add((name, parent.group(1) if parent else None))
+    return out
+
+
 class Trace:
     def __init__(self, project: Path):
         self.project = project
         self.messages = []
         self.n = 0
+        self.scenes = {}           # .tscn path -> nodes written so far (for the drop check)
+        self.allow_scene_loss = False
 
     def user(self, text: str):
         self.messages.append({"role": "user", "content": text})
@@ -97,6 +108,17 @@ class Trace:
             msg["tool_calls"].append({"type": "function", "function": {"name": name, "arguments": args}})
             results.append((name, tool(self.project, name, args)))
         self.messages.append(msg)
+        for (name, args), (_, r) in zip(calls, results):
+            # Gold traces must never contain an unplanned failed edit, or a scene rewrite that drops earlier work.
+            if name == "edit_file" and not r["ok"]:
+                raise RuntimeError(f"edit_file failed on {args.get('path')}: {r['content'][:200]}")
+            if name == "write_file" and args.get("path", "").endswith(".tscn"):
+                nodes = scene_nodes(args["content"])
+                before = self.scenes.get(args["path"])
+                if before and not before <= nodes and not self.allow_scene_loss:
+                    raise RuntimeError(f"{args['path']} rewrite drops nodes {sorted(n for n, _ in before - nodes)}")
+                if r["ok"]:
+                    self.scenes[args["path"]] = nodes
         for name, r in results:
             self.messages.append({"role": "tool", "name": name, "content": r["content"]})
         return [r for _, r in results]

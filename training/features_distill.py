@@ -476,8 +476,6 @@ FEATURES["falling_ball"] = dict(
 )
 
 CHAINS = [
-    ["camera_zoom", "pet_follow"],
-    ["blink_timer", "quit_escape"],
     ["explain_starter", "tween_hop"],
 ]
 
@@ -979,9 +977,6 @@ text = "Long ago, a brave hero set out on an adventure..."
 )
 
 CHAINS += [
-    ["star_spawner", "health_bar"],
-    ["wander_npc", "day_night"],
-    ["typewriter", "sparkles"],
 ]
 
 
@@ -1246,4 +1241,411 @@ CHAINS += [
     ["rename_game", "start_position"],
     ["turret_look", "floating_text"],
     ["ask_timer", "blink_timer"],
+]
+
+
+# ================================================================ batch 4
+PUB_SPEED = ("rust/src/player.rs", "    speed: f32,\n", "    pub speed: f32,\n")
+
+
+def topdown_with(subs: str, nodes: str) -> str:
+    return TOPDOWN_SCENE.replace('[node name="Main" type="Node2D"]', subs.strip() + '\n\n[node name="Main" type="Node2D"]') + nodes
+
+
+GOLD_KEY = '''use godot::classes::{Area2D, IArea2D, Node2D};
+use godot::prelude::*;
+
+use crate::player::Player;
+
+/// A key on the ground. Walking over it gives the player the key.
+#[derive(GodotClass)]
+#[class(base = Area2D)]
+pub struct GoldKey {
+    base: Base<Area2D>,
+}
+
+#[godot_api]
+impl IArea2D for GoldKey {
+    fn init(base: Base<Area2D>) -> Self {
+        Self { base }
+    }
+
+    fn ready(&mut self) {
+        self.signals().body_entered().connect_self(Self::on_body_entered);
+    }
+}
+
+#[godot_api]
+impl GoldKey {
+    fn on_body_entered(&mut self, body: Gd<Node2D>) {
+        if let Ok(mut player) = body.try_cast::<Player>() {
+            player.bind_mut().has_key = true;
+            godot_print!("You found a key!");
+            self.base_mut().queue_free();
+        }
+    }
+}
+'''
+
+DOOR = '''use godot::classes::{Area2D, IStaticBody2D, Node2D, StaticBody2D};
+use godot::prelude::*;
+
+use crate::player::Player;
+
+/// A solid door. Its "Sensor" Area2D notices the player; if they have the key, the door disappears.
+#[derive(GodotClass)]
+#[class(base = StaticBody2D)]
+pub struct Door {
+    base: Base<StaticBody2D>,
+}
+
+#[godot_api]
+impl IStaticBody2D for Door {
+    fn init(base: Base<StaticBody2D>) -> Self {
+        Self { base }
+    }
+
+    fn ready(&mut self) {
+        let sensor = self.base().get_node_as::<Area2D>("Sensor");
+        sensor.signals().body_entered().connect_other(&self.to_gd(), Self::on_touch);
+    }
+}
+
+#[godot_api]
+impl Door {
+    fn on_touch(&mut self, body: Gd<Node2D>) {
+        let Ok(player) = body.try_cast::<Player>() else { return };
+        if player.bind().has_key {
+            godot_print!("The door creaks open!");
+            self.base_mut().queue_free();
+        } else {
+            godot_print!("Locked. Maybe there's a key somewhere...");
+        }
+    }
+}
+'''
+
+KEY_DOOR_SCENE = topdown_with('''
+[sub_resource type="CircleShape2D" id="CircleShape2D_key"]
+radius = 20.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_door"]
+size = Vector2(40, 160)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sensor"]
+size = Vector2(80, 180)
+''', '''
+[node name="GoldKey" type="GoldKey" parent="."]
+position = Vector2(200, 520)
+
+[node name="ColorRect" type="ColorRect" parent="GoldKey"]
+offset_left = -14.0
+offset_top = -14.0
+offset_right = 14.0
+offset_bottom = 14.0
+color = Color(1, 0.85, 0.2, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="GoldKey"]
+shape = SubResource("CircleShape2D_key")
+
+[node name="Door" type="Door" parent="."]
+position = Vector2(900, 324)
+
+[node name="ColorRect" type="ColorRect" parent="Door"]
+offset_left = -20.0
+offset_top = -80.0
+offset_right = 20.0
+offset_bottom = 80.0
+color = Color(0.5, 0.3, 0.15, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Door"]
+shape = SubResource("RectangleShape2D_door")
+
+[node name="Sensor" type="Area2D" parent="Door"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Door/Sensor"]
+shape = SubResource("RectangleShape2D_sensor")
+''')
+
+FEATURES["key_door"] = dict(
+    requires=["topdown_body"],
+    prompts=["add a locked door and a key to open it", "I want a key that unlocks a door",
+             "make a door that only opens if I have the key", "key and door puzzle please"],
+    lookups=[("Area2D", "body_entered")],
+    new_nodes=[("GoldKey", "Area2D"), ("Door", "StaticBody2D")],
+    edits=[("rust/src/player.rs", "    speed: f32,\n", "    pub speed: f32,\n    /// Has the player picked up the key?\n    pub has_key: bool,\n"),
+           ("rust/src/player.rs", "Self { speed: 300.0, base }", "Self { speed: 300.0, has_key: false, base }")],
+    files={"rust/src/gold_key.rs": GOLD_KEY, "rust/src/door.rs": DOOR, "main.tscn": KEY_DOOR_SCENE}, run=2,
+    intro=["A key-and-door puzzle! Let me look at the player and the scene."],
+    final=["Your first puzzle! There's a yellow **key** in the bottom-left and a brown **door** on the right.\n- Walk into the door without the key: \"Locked.\"\n"
+           "- Grab the key, then touch the door: it opens (disappears).\n\nHow it fits together: the Player now has a `has_key` flag, the key sets it with `bind_mut()`, "
+           "and the door's **Sensor** (a slightly bigger Area2D) checks it with `bind()`.\n\nPress **Play** (F5) and try it!"],
+)
+
+SPAWNER_RAMP = STAR_SPAWNER.replace('''    every: f64,
+    base: Base<Node2D>,''', '''    every: f64,
+    /// Never spawn faster than this.
+    #[export]
+    fastest: f64,
+    timer: Option<Gd<Timer>>,
+    base: Base<Node2D>,''').replace('''Self { every: 0.8, base }''', '''Self { every: 0.8, fastest: 0.2, timer: None, base }''').replace(
+    '''        self.base_mut().add_child(&timer);''', '''        self.base_mut().add_child(&timer);
+        self.timer = Some(timer); // keep it, so we can speed it up later''').replace('''        self.base_mut().add_child(&star);''', '''        self.base_mut().add_child(&star);
+
+        // Each star makes the next one come a little sooner: 5% faster every time.
+        let fastest = self.fastest;
+        if let Some(timer) = self.timer.as_mut() {
+            let wait = (timer.get_wait_time() * 0.95).max(fastest);
+            timer.set_wait_time(wait);
+        }''')
+
+FEATURES["stars_speed_up"] = dict(
+    requires=["star_spawner"],
+    prompts=["make the stars come faster and faster over time", "the game should get harder the longer I play",
+             "increase the spawn rate as time goes on", "ramp up the difficulty"],
+    files={"rust/src/star_spawner.rs": SPAWNER_RAMP}, run=3,
+    intro=["Rising difficulty, that's how you keep it exciting. Let me read the spawner."],
+    final=["The stars now speed up! Every time a star spawns, the next one comes 5% sooner, until it hits the limit of one every 0.2 seconds.\n\n"
+           "To do that, the spawner now *keeps* its Timer in a field (`timer: Option<Gd<Timer>>`) instead of forgetting it after `ready`, so it can change `wait_time` later.\n\n"
+           "Press **Play** (F5) and watch it get busier. **Fastest** in the Inspector sets the limit."],
+)
+
+CLEAR_STARS_EDIT_GROUP = ("rust/src/star.rs", "        self.base_mut().add_child(&sprite);\n",
+                          "        self.base_mut().add_child(&sprite);\n        // Groups are tags: later we can find (or remove) every star at once.\n        self.base_mut().add_to_group(\"stars\");\n")
+CLEAR_STARS_EDIT_IMPORT = ("rust/src/player.rs", PLAYER_IMPORTS, PLAYER_IMPORTS + "\nuse godot::global::Key;")
+CLEAR_STARS_EDIT_BODY = ("rust/src/player.rs", PLAYER_MOVE_END, '''        self.base_mut().set_position(position + step);
+
+        if input.is_key_pressed(Key::BACKSPACE) {
+            // Call queue_free on every node tagged "stars".
+            self.base().get_tree().call_group("stars", "queue_free", &[]);
+        }
+    }''')
+
+FEATURES["clear_stars"] = dict(
+    requires=["star_spawner"],
+    prompts=["let me press backspace to clear all the stars", "add a bomb key that removes every star",
+             "how do I delete all the falling stars at once?", "wipe the screen of stars with backspace"],
+    lookups=[("SceneTree", "group")],
+    edits=[CLEAR_STARS_EDIT_GROUP, CLEAR_STARS_EDIT_IMPORT, CLEAR_STARS_EDIT_BODY], run=3,
+    intro=["A screen-clearing bomb! Let me look at the star and player code."],
+    final=["Press **Backspace** and every star on screen vanishes! Each Star now joins a **group** called `stars` when it appears (groups are like tags), "
+           "and the player calls `call_group(\"stars\", \"queue_free\", ...)` to remove them all at once.\n\nPress **Play** (F5) and try it. "
+           "Idea: limit it to 3 bombs per game, shown in the corner!"],
+)
+
+TELEPORTER = '''use godot::classes::{Area2D, IArea2D, Marker2D, Node2D};
+use godot::prelude::*;
+
+use crate::player::Player;
+
+/// Step on it and you're sent to the destination marker.
+#[derive(GodotClass)]
+#[class(base = Area2D)]
+pub struct Teleporter {
+    #[export]
+    destination: Option<Gd<Marker2D>>,
+    base: Base<Area2D>,
+}
+
+#[godot_api]
+impl IArea2D for Teleporter {
+    fn init(base: Base<Area2D>) -> Self {
+        Self { destination: None, base }
+    }
+
+    fn ready(&mut self) {
+        self.signals().body_entered().connect_self(Self::on_body_entered);
+    }
+}
+
+#[godot_api]
+impl Teleporter {
+    fn on_body_entered(&mut self, body: Gd<Node2D>) {
+        let Some(to) = self.destination.as_ref().map(|d| d.get_global_position()) else { return };
+        if let Ok(mut player) = body.try_cast::<Player>() {
+            player.set_global_position(to);
+            godot_print!("Whoosh!");
+        }
+    }
+}
+'''
+
+TELEPORT_SCENE = topdown_with('''
+[sub_resource type="CircleShape2D" id="CircleShape2D_pad"]
+radius = 30.0
+''', '''
+[node name="Teleporter" type="Teleporter" parent="." node_paths=PackedStringArray("destination")]
+position = Vector2(200, 500)
+destination = NodePath("../Exit")
+
+[node name="ColorRect" type="ColorRect" parent="Teleporter"]
+offset_left = -30.0
+offset_top = -30.0
+offset_right = 30.0
+offset_bottom = 30.0
+color = Color(0.6, 0.3, 1, 0.8)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Teleporter"]
+shape = SubResource("CircleShape2D_pad")
+
+[node name="Exit" type="Marker2D" parent="."]
+position = Vector2(950, 150)
+''')
+
+FEATURES["teleport_pad"] = dict(
+    requires=["topdown_body"],
+    prompts=["add a teleporter pad that sends me across the map", "make a portal", "I want a warp pad",
+             "stepping on a purple pad should teleport me somewhere else"],
+    new_nodes=[("Teleporter", "Area2D")],
+    files={"rust/src/teleporter.rs": TELEPORTER, "main.tscn": TELEPORT_SCENE}, run=2,
+    intro=["Portals! Let me check the project first."],
+    final=["Step on the purple pad in the bottom-left and you'll warp to the top-right! The pad is a **Teleporter** (an `Area2D`), and its **Destination** "
+           "is a `Marker2D` called **Exit**: an invisible point you can drag anywhere in the 2D view.\n\nPress **Play** (F5) and try it. "
+           "Want a two-way portal? Add a second Teleporter at the exit, pointing back (just place its exit marker a bit beside the pad so you don't bounce forever!)."],
+)
+
+RANDOM_START_IMPORT = ("rust/src/player.rs", PLAYER_IMPORTS, PLAYER_IMPORTS + "\nuse godot::global::randf_range;")
+RANDOM_START_READY = ("rust/src/player.rs", '''        godot_print!("Hello from Rust! Use the arrow keys to move.");''', '''        godot_print!("Hello from Rust! Use the arrow keys to move.");
+
+        // Start somewhere random on the screen (staying 50 pixels away from the edges).
+        let size = self.base().get_viewport_rect().size;
+        let x = randf_range(50.0, (size.x - 50.0) as f64) as f32;
+        let y = randf_range(50.0, (size.y - 50.0) as f64) as f32;
+        self.base_mut().set_position(Vector2::new(x, y));''')
+
+FEATURES["random_start"] = dict(
+    prompts=["start the player at a random spot each time", "randomize where I spawn", "spawn the player somewhere random"],
+    edits=[RANDOM_START_IMPORT, RANDOM_START_READY], run=2,
+    intro=["Sure! Let me look at the player code."],
+    final=["Each time you press Play, the player starts at a random spot (at least 50 pixels from the edges). It happens in `ready`, which runs once when the player appears.\n\n"
+           "Press **Play** (F5) a few times to see it move around."],
+)
+
+INVERT = '''use godot::classes::{INode2D, Input, Node2D};
+use godot::global::Key;
+use godot::prelude::*;
+
+/// Press I to flip the controls: left is right, up is down. Press again to flip back.
+#[derive(GodotClass)]
+#[class(base = Node2D)]
+pub struct Player {
+    #[export]
+    speed: f32,
+    inverted: bool,
+    i_was_down: bool,
+    base: Base<Node2D>,
+}
+
+#[godot_api]
+impl INode2D for Player {
+    fn init(base: Base<Node2D>) -> Self {
+        Self { speed: 300.0, inverted: false, i_was_down: false, base }
+    }
+
+    fn process(&mut self, delta: f64) {
+        let input = Input::singleton();
+
+        let i_down = input.is_key_pressed(Key::I);
+        if i_down && !self.i_was_down {
+            self.inverted = !self.inverted;
+            godot_print!("Controls inverted: {}", self.inverted);
+        }
+        self.i_was_down = i_down;
+
+        let mut direction = input.get_vector("ui_left", "ui_right", "ui_up", "ui_down");
+        if self.inverted {
+            direction = -direction;
+        }
+        let step = direction * self.speed * delta as f32;
+        let position = self.base().get_position();
+        self.base_mut().set_position(position + step);
+    }
+}
+'''
+
+FEATURES["invert_controls"] = dict(
+    prompts=["press I to make the controls backwards", "add a confusion mode where the arrows are reversed",
+             "invert the controls when I press I", "make a backwards-controls toggle"],
+    files={"rust/src/player.rs": INVERT}, run=2,
+    intro=["Confusion mode, sneaky! Let me read the player first."],
+    final=["Press **I** and the arrows flip: left goes right, up goes down. Press **I** again to go back to normal. It's a true/false flag (`inverted`) that flips on each press, and when it's on the direction is simply negated.\n\n"
+           "Press **Play** (F5) and try to steer! Idea: make a potion that confuses you for 5 seconds."],
+)
+
+MUD = '''use godot::classes::{Area2D, IArea2D, Node2D};
+use godot::prelude::*;
+
+use crate::player::Player;
+
+/// Slows the player down while they're inside it.
+#[derive(GodotClass)]
+#[class(base = Area2D)]
+pub struct MudZone {
+    /// 0.4 = move at 40% speed.
+    #[export]
+    slowdown: f32,
+    base: Base<Area2D>,
+}
+
+#[godot_api]
+impl IArea2D for MudZone {
+    fn init(base: Base<Area2D>) -> Self {
+        Self { slowdown: 0.4, base }
+    }
+
+    fn ready(&mut self) {
+        self.signals().body_entered().connect_self(Self::on_enter);
+        self.signals().body_exited().connect_self(Self::on_exit);
+    }
+}
+
+#[godot_api]
+impl MudZone {
+    fn on_enter(&mut self, body: Gd<Node2D>) {
+        if let Ok(mut player) = body.try_cast::<Player>() {
+            player.bind_mut().speed *= self.slowdown;
+        }
+    }
+
+    fn on_exit(&mut self, body: Gd<Node2D>) {
+        if let Ok(mut player) = body.try_cast::<Player>() {
+            player.bind_mut().speed /= self.slowdown; // undo exactly what we did
+        }
+    }
+}
+'''
+
+FEATURES["mud_zone"] = dict(
+    requires=["topdown_body"],
+    prompts=["add mud that slows me down", "make a swamp area where the player moves slower",
+             "slow zone please", "I want sticky ground that makes you slow"],
+    new_nodes=[("MudZone", "Area2D")],
+    edits=[PUB_SPEED],
+    files={"rust/src/mud_zone.rs": MUD, "main.tscn": topdown_with('''
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_mud"]
+size = Vector2(400, 220)
+''', '''
+[node name="MudZone" type="MudZone" parent="."]
+position = Vector2(850, 450)
+
+[node name="ColorRect" type="ColorRect" parent="MudZone"]
+offset_left = -200.0
+offset_top = -110.0
+offset_right = 200.0
+offset_bottom = 110.0
+color = Color(0.4, 0.28, 0.15, 0.7)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="MudZone"]
+shape = SubResource("RectangleShape2D_mud")
+''')}, run=2,
+    intro=["Mud! Let me look at the player and the scene."],
+    final=["There's a brown **mud** patch in the bottom-right. Walk into it and you slow to 40% speed; walk out and you're back to normal. "
+           "The MudZone multiplies the player's `speed` when you enter and divides it back when you leave (I made `speed` **pub** so it's allowed to).\n\n"
+           "Press **Play** (F5) and wade through it. **Slowdown** in the Inspector sets how sticky it is."],
+)
+
+CHAINS += [
+    ["star_spawner", "stars_speed_up", "clear_stars"],
+    ["topdown_body", "key_door"],
+    ["quit_escape", "random_start"],
 ]
