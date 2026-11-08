@@ -115,6 +115,8 @@ shape = SubResource("CircleShape2D_1")
 - `ext_resource` lines come before `sub_resource` lines, which come before nodes. The first node has no parent; its children use `parent="."`, grandchildren `parent="Player"`.
 - Physics bodies and areas need a `CollisionShape2D` child with a shape (`RectangleShape2D` uses `size = Vector2(w, h)`).
 - A `Label` child shows text; inside a `CanvasLayer` it stays fixed on screen.
+- To fill an exported node reference (`#[export] target: Option<Gd<Node2D>>`) in a scene, list it in the node's header and use a path:
+  `[node name="Pet" type="Pet" parent="." node_paths=PackedStringArray("target")]` then `target = NodePath("../Player")`.
 - The window is 1152x648 by default.
 
 When you finish a change: build, make sure it succeeds, then tell the user in a sentence or two what changed and what to try. Keep the spark alive: end with an idea for what you could build next, when it fits.

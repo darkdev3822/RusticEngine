@@ -20,7 +20,7 @@ rng = random.Random(int(os.environ.get("RNG_SEED", "7")))
 
 sys.path.insert(0, str(HERE))
 FEATURES = {}
-for mod in ("features_core", "features_more", "features_extra"):
+for mod in ("features_core", "features_more", "features_extra", "features_distill"):
     try:
         FEATURES.update(importlib.import_module(mod).FEATURES)
     except ModuleNotFoundError:
@@ -33,6 +33,10 @@ WRITE_LINES = ["", "", "Now I'll write the code.", "Here's the plan in code form
 BUILD_LINES = ["", "Let me build it to make sure everything compiles.", "Building to check it compiles."]
 RUN_LINES = ["", "It builds! Let me playtest it for a few seconds.", "Quick playtest to be sure it runs."]
 NODE_LINES = ["", "I'll start by creating the new node.", "First, the new Rust node."]
+LOOKUP_LINES = ["Let me check what {c} can actually do, so I use the real methods.",
+                "Quick check of {c} in the Godot API before I write anything.",
+                "I'll look up {c} first to get the method names exactly right.",
+                "Before writing code, let me confirm {c}'s methods."]
 CONTEXTS = ["", "", "open scene res://main.tscn", "open scene res://main.tscn; selected Player (Player)"]
 
 
@@ -135,6 +139,11 @@ def run_feature(t: "Trace", name: str, prompt: str, mistake: bool):
     project = t.project
     ctx = rng.choice(CONTEXTS)
     t.user(prompt + (f"\n\n[Editor context: {ctx}]" if ctx else ""))
+    if f.get("answer"):
+        # A question about Godot itself: look it up, then answer. No files change.
+        t.step(rng.choice(f["intro"]), [("class_info", {"class_name": c, "filter": flt}) for c, flt in f["lookups"]])
+        t.say(rng.choice(f["final"]))
+        return
     if f.get("explain"):
         look = [("list_files", {})] + [("read_file", {"path": p}) for p in f["explain"]]
         t.step(rng.choice(f["intro"]), look)
@@ -152,6 +161,12 @@ def run_feature(t: "Trace", name: str, prompt: str, mistake: bool):
     intro = rng.choice(f["intro"])
     if look:
         t.step(intro + (" " + rng.choice(LOOK_LINES) if rng.random() < 0.2 else ""), look)
+        intro = ""
+
+    if f.get("lookups"):
+        names = " and ".join(c for c, _ in f["lookups"])
+        t.step(intro or rng.choice(LOOKUP_LINES).format(c=names),
+               [("class_info", {"class_name": c, "filter": flt}) for c, flt in f["lookups"]])
         intro = ""
 
     if f.get("new_nodes"):
@@ -206,11 +221,11 @@ CHAINS = [
 ]
 
 
-try:
-    from features_extra import CHAINS as _extra_chains
-    CHAINS += _extra_chains
-except ModuleNotFoundError:
-    pass
+for _mod in ("features_extra", "features_distill"):
+    try:
+        CHAINS += importlib.import_module(_mod).CHAINS
+    except ModuleNotFoundError:
+        pass
 
 
 def main():
