@@ -83,6 +83,8 @@ def main():
     base.config.quantization_config = None
     cfgd = base.config.to_dict()
     cfgd.pop("quantization_config", None)
+    cfgd.pop("dtype", None)
+    cfgd.update(architectures=["Qwen3ForCausalLM"], model_type="qwen3", torch_dtype="float16")  # Unsloth leaves these out
     json.dump(cfgd, open(OUT / "config.json", "w"), indent=2)
     tok.save_pretrained(str(OUT))
     for f in ("generation_config.json",):
