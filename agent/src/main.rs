@@ -97,6 +97,14 @@ fn parse_text_calls(text: &str, defs: &[llm::ToolDef]) -> Vec<llm::ToolCall> {
     calls
 }
 
+/// Does this reply tell the user something was changed in their project?
+fn claims_change(text: &str) -> bool {
+    let t = text.to_lowercase().replace('\u{2019}', "'");
+    const VERBS: [&str; 9] = ["added", "made", "changed", "updated", "created", "turned", "gave", "fixed", "set up"];
+    let says_i = VERBS.iter().any(|v| t.contains(&format!("i {v} ")) || t.contains(&format!("i've {v} ")) || t.contains(&format!("i have {v} ")));
+    says_i || t.contains("press **play**") || t.contains("press play")
+}
+
 struct Session {
     cfg: Config,
     project: tools::Project,
@@ -112,6 +120,8 @@ impl Session {
         let defs = tools::definitions();
         let mut rust_dirty = false;
         let mut auto_checks = 0;
+        let mut changed_any = false;
+        let mut claim_checked = false;
 
         for _ in 0..MAX_STEPS {
             trim_history(&mut self.history);
@@ -152,6 +162,17 @@ impl Session {
                         continue;
                     }
                 }
+                // Small models sometimes describe a change they never made. Catch that once.
+                let last = match self.history.last() { Some(Msg::Assistant { text, .. }) => text.clone(), _ => String::new() };
+                if !changed_any && !claim_checked && claims_change(&last) {
+                    claim_checked = true;
+                    emit(json!({"type": "text", "delta": "\n\nWait - I haven't actually saved that change yet. Doing it now...\n\n"}));
+                    self.history.push(Msg::User(
+                        "[Automatic check] Your reply says you made a change, but no files were changed. \
+                         Make the change now with the tools (read the file first, then write_file/edit_file/new_rust_node), \
+                         build it, and only then tell me it's done.".into()));
+                    continue;
+                }
                 break;
             }
             for call in calls {
@@ -173,6 +194,7 @@ impl Session {
                     rust_dirty = true;
                 }
                 if outcome.files_changed {
+                    changed_any = true;
                     let path = call.args["path"].as_str().unwrap_or("").trim_start_matches("res://").to_string();
                     emit(json!({"type": "files_changed", "path": path}));
                 }

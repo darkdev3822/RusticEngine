@@ -89,6 +89,21 @@ fn truncate(s: &str, max: usize) -> String {
 impl Project {
     pub fn run(&self, name: &str, args: &Value) -> Outcome {
         let path = args["path"].as_str().unwrap_or("");
+        let mut out = self.run_inner(name, args, path);
+        // A hand-written scene that references something it never defines won't load; say so right away.
+        if out.files_changed && path.ends_with(".tscn") {
+            if let Ok(text) = self.resolve(path, false).and_then(|p| fs::read_to_string(p).map_err(|e| e.to_string())) {
+                let problems = scene_problems(&text);
+                if !problems.is_empty() {
+                    out.ok = false;
+                    out.content = format!("{}\nBut {path} won't load - fix it now:\n- {}", out.content, problems.join("\n- "));
+                }
+            }
+        }
+        out
+    }
+
+    fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
             "read_file" => match self.resolve(path, false) {
@@ -520,4 +535,45 @@ mod tests {
         assert!(!d.contains("unused variable"));
         assert!(!d.contains("could not compile"));
     }
+}
+
+/// Static checks for a .tscn: every SubResource/ExtResource used is declared, every parent path exists.
+pub fn scene_problems(text: &str) -> Vec<String> {
+    fn attr<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+        let i = line.find(&format!("{key}=\""))? + key.len() + 2;
+        line[i..].split('"').next()
+    }
+    fn refs(text: &str, kind: &str) -> Vec<String> {
+        let pat = format!("{kind}(");
+        text.match_indices(&pat).filter_map(|(i, _)| {
+            let rest = &text[i + pat.len()..];
+            Some(rest[..rest.find(')')?].trim().trim_matches('"').to_string())
+        }).collect()
+    }
+    let (mut subs, mut exts, mut nodes) = (vec![], vec![], vec![]);
+    let mut problems = vec![];
+    let mut has_root = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with("[sub_resource") { if let Some(id) = attr(line, "id") { subs.push(id.to_string()) } }
+        if line.starts_with("[ext_resource") { if let Some(id) = attr(line, "id") { exts.push(id.to_string()) } }
+        if line.starts_with("[node") {
+            let name = attr(line, "name").unwrap_or("").to_string();
+            match attr(line, "parent") {
+                None => { if has_root { problems.push(format!("node \"{name}\" has no parent=, but the scene already has a root node")) } has_root = true; }
+                Some(".") => nodes.push(name),
+                Some(p) => {
+                    if !nodes.iter().any(|n| n == p) { problems.push(format!("node \"{name}\" has parent=\"{p}\", but no node is at that path (paths are relative to the root, e.g. \".\" or \"Player\")")) }
+                    nodes.push(format!("{p}/{name}"));
+                }
+            }
+        }
+    }
+    for id in refs(text, "SubResource") {
+        if !subs.contains(&id) { problems.push(format!("SubResource(\"{id}\") is used but there is no [sub_resource ... id=\"{id}\"] above it")) }
+    }
+    for id in refs(text, "ExtResource") {
+        if !exts.contains(&id) { problems.push(format!("ExtResource(\"{id}\") is used but there is no [ext_resource ... id=\"{id}\"]")) }
+    }
+    problems.dedup();
+    problems
 }

@@ -120,6 +120,15 @@ fn ollama(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], stop: 
     let resp = post(agent().post(&url(base, "api/chat")), &body, "Ollama")
         .map_err(|e| if e.contains("Couldn't reach") {
             format!("{e}\nIs Ollama running? Start it with `ollama serve`, or pick another model in the AI Guide settings.")
+        } else if e.contains("HTTP 404") && e.contains("not found") {
+            if m.starts_with("rustic-ember") {
+                format!("Ember's model isn't installed in Ollama yet.\n\
+                    While it's on its way, open the AI Guide settings and pick \"Ollama: any local model\" with qwen3:8b \
+                    (run `ollama pull qwen3:8b` first) - it works with Ember's tools too, just a bit less sure-footed.\n({e})")
+            } else {
+                format!("Ollama doesn't have the model \"{}\". Download it with `ollama pull {}`, or pick another in the AI Guide settings.\n({e})",
+                        cfg.model, cfg.model)
+            }
         } else { e })?;
 
     let mut turn = Turn { text: String::new(), calls: vec![] };
