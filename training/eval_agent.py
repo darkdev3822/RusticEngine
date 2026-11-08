@@ -73,10 +73,13 @@ def run_task(model: str, task: str, idx: int) -> dict:
     looked = first_write is None or any(c in ("read_file", "list_files") for c in calls[:first_write])
     text = "".join(e.get("delta", "") for e in events if e["type"] == "text")
     errors = [e["message"] for e in events if e["type"] == "error"]
-    built = tool(project, "build_rust")["ok"]
-    ran = tool(project, "run_game", {"seconds": 2})["ok"] if built else False
+    b = tool(project, "build_rust")
+    built = b["ok"]
+    r = tool(project, "run_game", {"seconds": 2}) if built else {"ok": False, "content": ""}
+    ran = r["ok"]
+    problem = "" if ran else (r["content"] if built else b["content"])[:1500]
     return {"model": model, "task": task, "built": built, "ran": ran, "looked": looked, "tools": len(calls),
-            "changed": first_write is not None, "secs": round(secs), "errors": errors[:1], "reply": text[-400:]}
+            "changed": first_write is not None, "secs": round(secs), "errors": errors[:1], "reply": text[-400:], "problem": problem}
 
 
 def main():
