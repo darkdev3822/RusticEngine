@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Score a model as Ember on tasks that are NOT in the training data.
+
+For each task: fresh starter project -> run rustic-agent one-shot with the model -> check
+  built:  does `cargo build` succeed at the end?
+  looked: did it read/list before its first write?
+  ran:    does a headless playtest run without errors?
+  tools:  number of tool calls; secs: wall time
+Usage: python3 eval_agent.py MODEL [MODEL...]   (Ollama model names)
+"""
+import json, shutil, subprocess, sys, time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+AGENT = ROOT / "engine/bin/rustic-agent"
+ENGINE = ROOT / "engine/bin/godot.linuxbsd.editor.x86_64"
+BASE = ROOT / "sandbox/gen/base"
+SHARED_TARGET = ROOT / "sandbox/gen-target"
+
+TASKS = [
+    "Make the player grow bigger while I hold B",
+    "Add a second player I control with WASD",
+    "Make the player bounce off the edges of the screen",
+    "Make the player slowly fade in when the game starts",
+    "Add a pause: pressing P should freeze the player until I press P again",
+    "Print my player's position every second",
+    "Make the player shake a little when I press space",
+    "I want the player to follow my mouse",
+]
+
+
+def fresh(name: str) -> Path:
+    p = ROOT / "sandbox/eval" / name
+    shutil.rmtree(p, ignore_errors=True)
+    shutil.copytree(BASE, p, symlinks=True, ignore=shutil.ignore_patterns("target"))
+    (p / "rust/target").symlink_to(SHARED_TARGET)
+    return p
+
+
+def tool(project: Path, name: str, args=None) -> dict:
+    out = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--tool", name,
+                          "--args", json.dumps(args or {})], capture_output=True, text=True, timeout=600)
+    return json.loads(out.stdout)
+
+
+def run_task(model: str, task: str, idx: int) -> dict:
+    project = fresh(f"{model.replace(':', '_')}-{idx}")
+    t0 = time.time()
+    proc = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--provider", "ollama",
+                           "--model", model, "--ask", task], capture_output=True, text=True, timeout=1200)
+    secs = time.time() - t0
+    events = [json.loads(l) for l in proc.stdout.splitlines() if l.startswith("{")]
+    calls = [e["name"] for e in events if e["type"] == "tool_start"]
+    first_write = next((i for i, c in enumerate(calls) if c in ("write_file", "edit_file", "new_rust_node")), None)
+    looked = first_write is None or any(c in ("read_file", "list_files") for c in calls[:first_write])
+    text = "".join(e.get("delta", "") for e in events if e["type"] == "text")
+    errors = [e["message"] for e in events if e["type"] == "error"]
+    built = tool(project, "build_rust")["ok"]
+    ran = tool(project, "run_game", {"seconds": 2})["ok"] if built else False
+    return {"model": model, "task": task, "built": built, "ran": ran, "looked": looked, "tools": len(calls),
+            "changed": first_write is not None, "secs": round(secs), "errors": errors[:1], "reply": text[-400:]}
+
+
+def main():
+    out = Path(__file__).resolve().parent / "data/eval_results.jsonl"
+    for model in sys.argv[1:]:
+        rows = []
+        for i, task in enumerate(TASKS):
+            r = run_task(model, task, i)
+            rows.append(r)
+            with out.open("a") as fh:
+                fh.write(json.dumps(r) + "\n")
+            print(f"{model:22s} built={r['built']!s:5} ran={r['ran']!s:5} looked={r['looked']!s:5} "
+                  f"changed={r['changed']!s:5} tools={r['tools']:2d} {r['secs']:4d}s  {task}", flush=True)
+        n = len(rows)
+        print(f"== {model}: built {sum(r['built'] and r['changed'] for r in rows)}/{n}, ran {sum(r['ran'] and r['changed'] for r in rows)}/{n}, "
+              f"looked-first {sum(r['looked'] for r in rows)}/{n}, avg {sum(r['secs'] for r in rows) / n:.0f}s", flush=True)
+
+
+if __name__ == "__main__":
+    main()

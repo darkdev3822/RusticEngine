@@ -16,7 +16,7 @@ ENGINE = ROOT / "engine/bin/godot.linuxbsd.editor.x86_64"
 WORK = ROOT / "sandbox/gen"
 BASE = WORK / "base"
 SHARED_TARGET = ROOT / "sandbox/gen-target"
-rng = random.Random(7)
+rng = random.Random(int(os.environ.get("RNG_SEED", "7")))
 
 sys.path.insert(0, str(HERE))
 FEATURES = {}

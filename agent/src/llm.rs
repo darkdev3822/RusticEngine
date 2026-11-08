@@ -108,10 +108,15 @@ fn ollama(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], stop: 
     let tools: Vec<Value> = tools.iter().map(|t| json!({"type": "function", "function": {
         "name": t.name, "description": t.description, "parameters": t.schema}})).collect();
     let base = if cfg.base_url.is_empty() { "http://localhost:11434" } else { cfg.base_url.trim_end_matches("/v1") };
-    let body = json!({
+    let mut body = json!({
         "model": cfg.model, "messages": messages, "tools": tools, "stream": true,
         "options": {"num_ctx": if cfg.context > 0 { cfg.context } else { 16384 }, "temperature": 0.4},
     });
+    // Ember is trained in Qwen3's non-thinking mode; qwen3 models otherwise spend a long time "thinking".
+    let m = cfg.model.to_lowercase();
+    if m.starts_with("rustic-ember") || m.starts_with("qwen3") {
+        body["think"] = json!(false);
+    }
     let resp = post(agent().post(&url(base, "api/chat")), &body, "Ollama")
         .map_err(|e| if e.contains("Couldn't reach") {
             format!("{e}\nIs Ollama running? Start it with `ollama serve`, or pick another model in the AI Guide settings.")
