@@ -271,10 +271,77 @@ impl I{base} for {class} {{
             let o = self.build_once();
             if o.rust_built { return with_fixes(o, &fixed); }
             let more = self.fix_imports(&o.raw);
-            if more.is_empty() { return with_fixes(o, &fixed); }
+            if more.is_empty() { return with_fixes(self.add_hints(o), &fixed); }
             fixed.extend(more);
         }
-        with_fixes(self.build_once(), &fixed)
+        let o = self.build_once();
+        with_fixes(if o.rust_built { o } else { self.add_hints(o) }, &fixed)
+    }
+
+    fn add_hints(&self, mut o: Outcome) -> Outcome {
+        let hints = self.method_hints(&o.raw);
+        if !hints.is_empty() { o.content += &format!("\nHints from the Godot API:\n- {}", hints.join("\n- ")); }
+        o
+    }
+
+    /// For "no method named X" errors, look up what Godot actually offers on that class (and its parents).
+    fn method_hints(&self, raw: &str) -> Vec<String> {
+        let Ok(api) = self.api() else { return vec![] };
+        let classes = api["classes"].as_array().cloned().unwrap_or_default();
+        let class = |n: &str| classes.iter().find(|c| c["name"].as_str() == Some(n));
+        let methods_of = |n: &str| -> Vec<String> {
+            let mut out = vec![];
+            let mut cur = Some(n.to_string());
+            while let Some(c) = cur.and_then(|n| class(&n)) {
+                out.extend(c["methods"].as_array().into_iter().flatten().filter_map(|m| m["name"].as_str().map(String::from)));
+                cur = c["inherits"].as_str().map(String::from);
+            }
+            out
+        };
+        const SYN: [(&str, &str); 6] = [("opacity", "modulate"), ("alpha", "modulate"), ("color", "modulate"),
+                                        ("transparency", "modulate"), ("size", "scale"), ("angle", "rotation")];
+        let words = |m: &str| -> Vec<String> {
+            let mut w: Vec<String> = m.split('_').filter(|t| !["get", "set", "is", "to", ""].contains(t)).map(String::from).collect();
+            for (a, b) in SYN { if w.iter().any(|x| x == a) { w.push(b.to_string()) } }
+            w
+        };
+        let mut hints = vec![];
+        for line in raw.lines().filter(|l| l.starts_with("error[E0599]: no method named")) {
+            let t: Vec<&str> = line.split('`').skip(1).step_by(2).collect();
+            let (Some(method), Some(ty)) = (t.first(), t.get(1)) else { continue };
+            // Gd<Input> -> Input; BaseMut<'_, Player> -> the Rust class's Godot base
+            let inner = ty.split('<').nth(1).unwrap_or("").trim_end_matches('>').rsplit(", ").next().unwrap_or("").trim();
+            if inner.is_empty() { continue } // a builtin like NodePath/Vector2, not a Godot class
+            let godot_class = if class(inner).is_some() { inner.to_string() } else { self.rust_base_of(inner).unwrap_or_default() };
+            if godot_class.is_empty() { continue }
+            let own = methods_of(&godot_class);
+            let w = words(method);
+            let mut similar: Vec<&String> = own.iter().filter(|m| words(m).iter().any(|x| w.contains(x))).collect();
+            similar.sort(); similar.dedup(); similar.truncate(8);
+            let elsewhere: Vec<&str> = classes.iter().filter(|c| c["methods"].as_array().into_iter().flatten()
+                .any(|m| m["name"].as_str() == Some(method))).filter_map(|c| c["name"].as_str()).take(4).collect();
+            let mut h = format!("`{method}` doesn't exist on {godot_class} (or its parent classes).");
+            if !similar.is_empty() { h += &format!(" Real {godot_class} methods that look related: {}.", similar.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")); }
+            if !elsewhere.is_empty() { h += &format!(" A method with that exact name exists on: {}.", elsewhere.join(", ")); }
+            h += &format!(" Use class_info(\"{godot_class}\") to see everything.");
+            if !hints.contains(&h) { hints.push(h) }
+        }
+        hints
+    }
+
+    /// `pub struct Player` with `#[class(base = Node2D)]` -> "Node2D"
+    fn rust_base_of(&self, rust_class: &str) -> Option<String> {
+        let dir = self.root.join("rust/src");
+        for e in fs::read_dir(dir).ok()?.flatten() {
+            let Ok(src) = fs::read_to_string(e.path()) else { continue };
+            if rust_class.is_empty() { return None }
+            let Some(at) = src.find(&format!("pub struct {rust_class} ")).or_else(|| src.find(&format!("struct {rust_class} "))) else { continue };
+            let before = &src[..at];
+            let attr = before.rfind("#[class(")?;
+            let base = before[attr..].split("base").nth(1)?.trim_start_matches([' ', '=']).split([',', ')']).next()?.trim().to_string();
+            return Some(base);
+        }
+        None
     }
 
     /// Add/repair `use` lines for Godot classes, class traits (IFoo) and global enums (Key...) rustc says are missing.
