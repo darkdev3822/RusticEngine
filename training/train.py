@@ -32,9 +32,10 @@ def render(tok, sample):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=float, default=2)
-    ap.add_argument("--max-len", type=int, default=8192)
+    ap.add_argument("--max-len", type=int, default=6144)
     ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--rank", type=int, default=32)
+    ap.add_argument("--rank", type=int, default=16)
+    ap.add_argument("--resume", action="store_true", help="continue from the last checkpoint in out/checkpoints")
     ap.add_argument("--check", action="store_true", help="only render + measure the dataset")
     args = ap.parse_args()
 
@@ -72,21 +73,19 @@ def main():
     trainer = SFTTrainer(
         model=model, tokenizer=tok,
         train_dataset=Dataset.from_dict({"text": keep}),
-        eval_dataset=Dataset.from_dict({"text": ev_keep}),
         args=SFTConfig(
             dataset_text_field="text", max_seq_length=args.max_len, packing=False,
             per_device_train_batch_size=1, gradient_accumulation_steps=8,
             num_train_epochs=args.epochs, learning_rate=args.lr, lr_scheduler_type="cosine", warmup_ratio=0.05,
             weight_decay=0.01, optim="adamw_8bit", bf16=True, logging_steps=5,
-            eval_strategy="epoch", save_strategy="epoch", save_total_limit=2,
+            eval_strategy="no", save_strategy="steps", save_steps=20, save_total_limit=2,  # eval pass OOMs on 10 GB
             output_dir=str(HERE / "out/checkpoints"), report_to="none", seed=3407),
     )
     # Learn only Ember's turns: everything after "<|im_start|>assistant\n" up to the next user/tool turn.
     trainer = train_on_responses_only(trainer, instruction_part="<|im_start|>user\n",
                                       response_part="<|im_start|>assistant\n")
-    stats = trainer.train()
+    stats = trainer.train(resume_from_checkpoint=args.resume or None)
     print(stats)
-    print(trainer.evaluate())
     out = HERE / "out/ember-lora"
     model.save_pretrained(str(out))
     tok.save_pretrained(str(out))
