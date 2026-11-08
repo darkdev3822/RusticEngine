@@ -152,6 +152,7 @@ impl Session {
                     let b = self.project.build_rust();
                     emit(json!({"type": "tool_end", "name": "build_rust", "ok": b.ok, "summary": "Checking that the code builds"}));
                     if b.ok {
+                        rust_dirty = false;
                         emit(json!({"type": "rust_built"}));
                     } else {
                         emit(json!({"type": "text", "delta": "\n\nHold on, the code doesn't build yet. Fixing it...\n\n"}));
@@ -161,6 +162,12 @@ impl Session {
                         rust_dirty = true;
                         continue;
                     }
+                }
+                if rust_dirty {
+                    // Out of automatic fix attempts: never leave the user believing broken code works.
+                    emit(json!({"type": "text", "delta": "\n\n**Heads up:** I couldn't get the code to build yet, so this change won't work as-is. \
+                        Say \"keep trying\" and I'll have another go, or tell me what you'd like to do instead."}));
+                    break;
                 }
                 // Small models sometimes describe a change they never made. Catch that once.
                 let last = match self.history.last() { Some(Msg::Assistant { text, .. }) => text.clone(), _ => String::new() };

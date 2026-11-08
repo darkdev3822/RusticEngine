@@ -55,10 +55,19 @@ def tool(project: Path, name: str, args=None) -> dict:
 def run_task(model: str, task: str, idx: int) -> dict:
     project = fresh(f"{model.replace(':', '_')}-{idx}")
     t0 = time.time()
-    proc = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--provider", "ollama",
-                           "--model", model, "--ask", task], capture_output=True, text=True, timeout=1200)
+    try:
+        stdout = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--provider", "ollama",
+                                 "--model", model, "--ask", task], capture_output=True, text=True, timeout=600).stdout
+    except subprocess.TimeoutExpired as e:  # a stuck model counts as a failure, not a crash
+        stdout = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+        stdout += "\n" + json.dumps({"type": "error", "message": "timed out after 600 s"})
     secs = time.time() - t0
-    events = [json.loads(l) for l in proc.stdout.splitlines() if l.startswith("{")]
+    events = []
+    for l in stdout.splitlines():
+        try:
+            events.append(json.loads(l))
+        except ValueError:
+            pass
     calls = [e["name"] for e in events if e["type"] == "tool_start"]
     first_write = next((i for i, c in enumerate(calls) if c in ("write_file", "edit_file", "new_rust_node")), None)
     looked = first_write is None or any(c in ("read_file", "list_files") for c in calls[:first_write])

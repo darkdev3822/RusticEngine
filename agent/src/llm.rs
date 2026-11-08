@@ -110,7 +110,9 @@ fn ollama(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], stop: 
     let base = if cfg.base_url.is_empty() { "http://localhost:11434" } else { cfg.base_url.trim_end_matches("/v1") };
     let mut body = json!({
         "model": cfg.model, "messages": messages, "tools": tools, "stream": true,
-        "options": {"num_ctx": if cfg.context > 0 { cfg.context } else { 16384 }, "temperature": 0.4},
+        "options": {"num_ctx": if cfg.context > 0 { cfg.context } else { 16384 }, "temperature": 0.4,
+                    // A local model that starts repeating itself would otherwise generate forever.
+                    "num_predict": 8192},
     });
     // Ember is trained in Qwen3's non-thinking mode; qwen3 models otherwise spend a long time "thinking".
     let m = cfg.model.to_lowercase();
