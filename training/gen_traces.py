@@ -20,7 +20,7 @@ rng = random.Random(int(os.environ.get("RNG_SEED", "7")))
 
 sys.path.insert(0, str(HERE))
 FEATURES = {}
-for mod in ("features_core", "features_more"):
+for mod in ("features_core", "features_more", "features_extra"):
     try:
         FEATURES.update(importlib.import_module(mod).FEATURES)
     except ModuleNotFoundError:
@@ -159,11 +159,18 @@ def run_feature(t: "Trace", name: str, prompt: str, mistake: bool):
         intro = ""
 
     writes = dict(files)
-    bad = f.get("mistake", {}) if mistake else {}
+    bad = f.get("mistake", {}) if mistake == "code" or mistake is True else {}
+    bad_scene = f.get("scene_mistake", {}) if mistake == "scene" else {}
     writes.update(bad)
+    writes.update(bad_scene)
     calls = [("write_file", {"path": p, "content": c}) for p, c in writes.items()]
     calls += [("edit_file", {"path": p, "old_text": o, "new_text": n}) for p, o, n in edits]
-    t.step(intro or rng.choice(WRITE_LINES), calls)
+    results = t.step(intro or rng.choice(WRITE_LINES), calls)
+    if bad_scene:
+        if all(r["ok"] for r in results):
+            raise RuntimeError(f"{name}: scene mistake wasn't caught by the checker")
+        t.step(f.get("scene_mistake_note", "The scene has a problem. Fixing it."),
+               [("write_file", {"path": p, "content": files[p]}) for p in bad_scene])
 
     (build,) = t.step(rng.choice(BUILD_LINES), [("build_rust", {})])
     if bad:
@@ -184,6 +191,7 @@ def run_feature(t: "Trace", name: str, prompt: str, mistake: bool):
     t.say(rng.choice(f["final"]))
 
 
+CHAINS_EXTRA = []
 CHAINS = [
     ["topdown_body", "coins", "score_hud"],
     ["coins", "score_hud", "coin_spawner"],
@@ -198,6 +206,13 @@ CHAINS = [
 ]
 
 
+try:
+    from features_extra import CHAINS as _extra_chains
+    CHAINS += _extra_chains
+except ModuleNotFoundError:
+    pass
+
+
 def main():
     out = Path(sys.argv[1])
     only = sys.argv[2:]
@@ -210,7 +225,9 @@ def main():
                 continue
             jobs = [(p, False) for p in f["prompts"]]
             if f.get("mistake"):
-                jobs += [(p, True) for p in rng.sample(f["prompts"], min(2, len(f["prompts"])))]
+                jobs += [(p, "code") for p in rng.sample(f["prompts"], min(2, len(f["prompts"])))]
+            if f.get("scene_mistake"):
+                jobs += [(p, "scene") for p in rng.sample(f["prompts"], min(2, len(f["prompts"])))]
             for prompt, mistake in jobs:
                 t0 = time.time()
                 try:

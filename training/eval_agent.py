@@ -26,6 +26,15 @@ TASKS = [
     "Print my player's position every second",
     "Make the player shake a little when I press space",
     "I want the player to follow my mouse",
+    # round 2 (added 2026-11-08; none of these are in the training data either)
+    "Make the player move faster the longer I hold an arrow key",
+    "Add a label at the bottom of the screen that says Good luck!",
+    "Make the player jump back to the middle of the screen when I press C",
+    "Let me rotate the player with Q and E",
+    "Change the background color every time I press space",
+    "Make the player move in a circle all by itself",
+    "Show how many times I've pressed space in the top corner",
+    "Make the player half see-through",
 ]
 
 
