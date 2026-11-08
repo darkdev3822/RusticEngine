@@ -15,3 +15,4 @@ training/unsloth_compiled_cache/
 training/.venv/
 .venv/
 training/corpus/
+training/data/off_*.jsonl

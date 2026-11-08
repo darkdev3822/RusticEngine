@@ -259,6 +259,12 @@ fn main() {
     }
     let root = PathBuf::from(arg(&args, "--project").unwrap_or_else(|| ".".into()));
     let root = root.canonicalize().unwrap_or(root);
+    if args.iter().any(|a| a == "--print-system") {
+        // The full system prompt the model sees for this project and mode (used to build training data).
+        let mode = if arg(&args, "--mode").as_deref() == Some("learning") { MODE_LEARNING } else { MODE_AUTONOMOUS };
+        print!("{SYSTEM_PROMPT}\n{mode}\n# This project\n{}", assets::design_context(&root));
+        return;
+    }
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
     let project = tools::Project {
         root,

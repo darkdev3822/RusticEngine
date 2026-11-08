@@ -5,14 +5,18 @@
 The system prompt is Ember's real prompt (agent/prompt/ember.md), exactly as the agent sends it.
 Output: data/train.jsonl, data/eval.jsonl
 """
-import glob, json, random, sys
+import glob, json, random, subprocess, sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from conversations import CONVERSATIONS  # noqa: E402
 
-SYSTEM = (HERE.parent / "agent/prompt/ember.md").read_text()
+AGENT = HERE.parent / "engine/bin/rustic-agent"
+BASE = HERE.parent / "sandbox/gen/base"
+# Exactly what the agent sends for a project with no design notes yet, in autonomous mode.
+SYSTEM = subprocess.run([str(AGENT), "--print-system", "--project", str(BASE)], capture_output=True, text=True, check=True).stdout
+TOOLS = json.loads(subprocess.run([str(AGENT), "--print-tools"], capture_output=True, text=True, check=True).stdout)
 rng = random.Random(11)
 
 
@@ -22,15 +26,14 @@ def main():
     for path in sorted(glob.glob(str(HERE / "data/traces*.jsonl"))):
         for line in open(path):
             rec = json.loads(line)
-            tools = rec["tools"]
             samples.append({"kind": "trace:" + rec["feature"] + (":mistake" if rec.get("mistake") else ""),
-                            "messages": [{"role": "system", "content": SYSTEM}] + rec["messages"], "tools": rec["tools"]})
+                            "messages": [{"role": "system", "content": rec.get("system") or SYSTEM}] + rec["messages"], "tools": TOOLS})
     n_traces = len(samples)
     for phrasings, answer in CONVERSATIONS:
         for q in phrasings:
             samples.append({"kind": "chat", "messages": [
                 {"role": "system", "content": SYSTEM}, {"role": "user", "content": q},
-                {"role": "assistant", "content": answer}], "tools": tools})
+                {"role": "assistant", "content": answer}], "tools": TOOLS})
     rng.shuffle(samples)
     # Hold out ~6% for evaluation, at least one of each kind where possible.
     n_eval = max(8, len(samples) * 6 // 100)

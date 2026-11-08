@@ -78,7 +78,7 @@ pub fn search(query: &str, max: usize) -> String {
     if scored.is_empty() { return format!("No examples mention {query}. Try class_info instead."); }
     let mut out = String::new();
     for (_, e) in scored.into_iter().take(max) {
-        let code: Vec<&str> = e.code.lines().take(45).collect();
+        let code: Vec<&str> = e.code.lines().take(30).collect();
         out += &format!("--- {} ({})\n{}\n\n", e.title, e.src, code.join("\n"));
     }
     out + "These are real, compiling godot-rust 0.5 snippets (tests use helper functions you don't have: copy the API usage, not the test scaffolding)."

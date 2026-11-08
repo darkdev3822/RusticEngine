@@ -142,7 +142,7 @@ impl Project {
     fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
-            "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 3)),
+            "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 2)),
             "asset_info" => match self.resolve(path, false) {
                 Ok(p) => match crate::assets::info(&p, path) { Ok(t) => ok(t), Err(e) => fail(e) },
                 Err(e) => fail(e),
@@ -544,6 +544,18 @@ impl I{base} for {class} {{
         let log: Vec<&str> = out.lines().chain(err.lines())
             .filter(|l| !l.trim().is_empty() && !l.starts_with("RusticEngine v") && !l.starts_with("Initialize godot-rust"))
             .collect();
+        // Shutdown bookkeeping from the headless run (e.g. audio still loaded when time ran out) isn't the game's fault.
+        let mut log: Vec<&str> = log;
+        let mut i = 0;
+        while i < log.len() {
+            let l = log[i];
+            if l.contains("instances were leaked at exit") || l.contains("resources still in use at exit") {
+                log.remove(i);
+                if i < log.len() && log[i].trim_start().starts_with("at: ") { log.remove(i); }
+            } else {
+                i += 1;
+            }
+        }
         let has_errors = log.iter().any(|l| l.contains("ERROR") || l.contains("panicked") || l.contains("SCRIPT ERROR"));
         let crashed = status.map(|s| !s.success()).unwrap_or(true);
         let mut report = format!("Simulated {seconds:.0} s of game time. ");

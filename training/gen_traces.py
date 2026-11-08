@@ -187,8 +187,12 @@ def run_feature(t: "Trace", name: str, prompt: str, mistake: bool):
 
     if f.get("lookups"):
         names = " and ".join(c for c, _ in f["lookups"])
-        t.step(intro or rng.choice(LOOKUP_LINES).format(c=names),
-               [("class_info", {"class_name": c, "filter": flt}) for c, flt in f["lookups"]])
+        calls = [("class_info", {"class_name": c, "filter": flt}) for c, flt in f["lookups"]]
+        if rng.random() < 0.45:
+            # Real usage from the example library, next to the API listing.
+            c, flt = f["lookups"][0]
+            calls.append(("find_example", {"query": f"{c} {flt}".strip()}))
+        t.step(intro or rng.choice(LOOKUP_LINES).format(c=names), calls)
         intro = ""
 
     if f.get("new_nodes"):
