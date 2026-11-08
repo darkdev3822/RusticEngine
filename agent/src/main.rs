@@ -10,6 +10,7 @@
 //! Also usable from a terminal for testing:
 //!   rustic-agent --project DIR --engine PATH --provider ollama --model qwen2.5-coder:7b --ask "make the player jump"
 mod assets;
+mod examples;
 mod llm;
 mod tools;
 
@@ -279,7 +280,7 @@ fn main() {
     // Run a single tool and print its outcome (used to generate training data from real runs).
     if let Some(tool) = arg(&args, "--tool") {
         let tool_args: Value = serde_json::from_str(&arg(&args, "--args").unwrap_or_else(|| "{}".into())).unwrap_or(json!({}));
-        let o = session.project.run(&tool, &tool_args);
+        let o = if tool == "look_at_image" { session.look_at_image(&tool_args) } else { session.project.run(&tool, &tool_args) };
         println!("{}", json!({"ok": o.ok, "content": o.content, "files_changed": o.files_changed, "rust_built": o.rust_built}));
         return;
     }

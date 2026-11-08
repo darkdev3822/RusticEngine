@@ -65,6 +65,9 @@ pub fn definitions() -> Vec<ToolDef> {
                 "class_name": {"type": "string", "description": "e.g. CharacterBody2D, Label, Timer"},
                 "filter": {"type": "string", "description": "Optional word to only show matching members, e.g. velocity"}},
                 "required": ["class_name"]}) },
+        ToolDef { name: "find_example", description: "Search a library of real, working godot-rust 0.5 code for how to do something. Use it before writing an API you're not sure about.",
+            schema: json!({"type": "object", "properties": {
+                "query": {"type": "string", "description": "Class, method or idea, e.g. 'Timer timeout connect', 'Tween tween_property', 'get_overlapping_bodies'"}}, "required": ["query"]}) },
         ToolDef { name: "asset_info", description: "Describe a file the creator added: an image's size and whether it looks like a sprite sheet, a 3D model's parts and animations, a sound's length, a scene's nodes. Works on folders too.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. assets/hero.png or design/concept"}}, "required": ["path"]}) },
@@ -90,6 +93,7 @@ pub fn summary(name: &str, args: &Value) -> String {
         "run_game" => format!("Playtesting the game ({} s)", args["seconds"].as_f64().unwrap_or(5.0)),
         "class_info" => format!("Looking up {}", args["class_name"].as_str().unwrap_or("?")),
         "asset_info" => format!("Inspecting {p}"),
+        "find_example" => format!("Finding examples of {}", args["query"].as_str().unwrap_or("?")),
         "look_at_image" => format!("Looking at {p}"),
         "set_mode" => format!("Switching to {} mode", args["mode"].as_str().unwrap_or("?")),
         other => format!("Using {other}"),
@@ -138,6 +142,7 @@ impl Project {
     fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
+            "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 3)),
             "asset_info" => match self.resolve(path, false) {
                 Ok(p) => match crate::assets::info(&p, path) { Ok(t) => ok(t), Err(e) => fail(e) },
                 Err(e) => fail(e),

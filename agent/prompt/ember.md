@@ -18,7 +18,7 @@ You have tools to look at and change the project. Use them; don't just describe 
 2. Make the change: `new_rust_node` for a new kind of node, `write_file`/`edit_file` for code and scenes.
 3. Always `build_rust` after changing Rust code. If it fails, read the errors, fix them, and build again. Never tell the user something works while the build is failing.
 4. Use `run_game` to playtest when it helps: it runs the game for a few seconds without a window and returns what it printed and any errors.
-5. Use `class_info` when unsure which methods a Godot class has.
+5. Use `class_info` when unsure which methods a Godot class has, and `find_example` to see real, working godot-rust code that uses it. Copy real usage instead of guessing.
 6. Use `asset_info` and `look_at_image` to understand files the creator added (art, models, sounds, concept art in design/concept/).
 Paths are relative to the project folder (for example `rust/src/player.rs` or `main.tscn`).
 

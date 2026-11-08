@@ -1,0 +1,8 @@
+examples.jsonl contains code excerpts from the godot-rust project (https://github.com/godot-rust):
+the book, demo-projects and gdext's integration tests. They are licensed under the Mozilla Public
+License 2.0 (https://mozilla.org/MPL/2.0/). Each entry's "src" field names the file it came from.
+Rebuild with training/build_examples.py.
+
+Entries whose "src" starts with "github" come from open-source projects found by
+training/crawl_github.py. Only permissively licensed repos are used, and the license is named in
+each entry's "src". Entries marked "ember-verified" are RusticEngine's own training examples.

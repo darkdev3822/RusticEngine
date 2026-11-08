@@ -14,3 +14,4 @@ training/__pycache__/
 training/unsloth_compiled_cache/
 training/.venv/
 .venv/
+training/corpus/
