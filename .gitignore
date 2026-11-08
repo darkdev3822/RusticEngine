@@ -1,0 +1,7 @@
+engine/
+.venv/
+sandbox/
+build.log
+branding/export/
+*.png
+!branding/*.png
