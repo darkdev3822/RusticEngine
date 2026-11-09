@@ -47,9 +47,12 @@ def fresh(name: str) -> Path:
 
 
 def tool(project: Path, name: str, args=None) -> dict:
-    out = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--tool", name,
-                          "--args", json.dumps(args or {})], capture_output=True, text=True, timeout=600)
-    return json.loads(out.stdout)
+    try:
+        out = subprocess.run([str(AGENT), "--project", str(project), "--engine", str(ENGINE), "--tool", name,
+                              "--args", json.dumps(args or {})], capture_output=True, text=True, timeout=600)
+        return json.loads(out.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:  # a hang counts as a failure, not a crash
+        return {"ok": False, "content": f"{name} failed: {type(e).__name__}"}
 
 
 def run_task(model: str, task: str, idx: int) -> dict:
