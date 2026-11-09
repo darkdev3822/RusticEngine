@@ -135,6 +135,15 @@ pub fn definitions() -> Vec<ToolDef> {
     ]
 }
 
+/// Art the creator makes themselves in the Studio. Ember guides; it never writes these.
+pub fn is_studio_art(path: &str) -> bool {
+    let p = path.trim_start_matches("res://").to_lowercase();
+    p.ends_with(".rmodel") || p.ends_with(".rsfx") || p.starts_with("design/studio/")
+}
+
+const STUDIO_HANDS_OFF: &str = "Studio files are the creator's own art: they make them in the Studio tab, you don't write them. \
+Instead, tell them which Studio tool or key to use and why, one step at a time, based on what asset_info showed you.";
+
 pub fn summary(name: &str, args: &Value) -> String {
     let p = args["path"].as_str().unwrap_or("");
     match name {
@@ -245,6 +254,7 @@ impl Project {
                 },
                 Err(e) => fail(e),
             },
+            "write_file" | "edit_file" if is_studio_art(path) => fail(STUDIO_HANDS_OFF.to_string()),
             "write_file" => {
                 let content = args["content"].as_str().unwrap_or("");
                 match self.resolve(path, true) {
@@ -883,4 +893,16 @@ pub fn scene_problems(text: &str) -> Vec<String> {
     }
     problems.dedup();
     problems
+}
+
+#[cfg(test)]
+mod studio_tests {
+    #[test]
+    fn studio_art_is_hands_off() {
+        assert!(super::is_studio_art("assets/models/house.rmodel"));
+        assert!(super::is_studio_art("res://assets/sounds/boom.rsfx"));
+        assert!(super::is_studio_art("design/studio/house.png"));
+        assert!(!super::is_studio_art("rust/src/player.rs"));
+        assert!(!super::is_studio_art("design/vision.md"));
+    }
 }
