@@ -608,8 +608,16 @@ impl I{base} for {class} {{
         // extension list the engine won't load the Rust library. Import it once, headless.
         let ext_list = fs::read_to_string(self.root.join(".godot/extension_list.cfg")).unwrap_or_default();
         if !ext_list.contains(".gdextension") {
-            let _ = Command::new(engine).arg("--path").arg(&self.root).args(["--headless", "--import"])
-                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            // The import can hang on some projects; never let it block the conversation.
+            if let Ok(mut c) = Command::new(engine).arg("--path").arg(&self.root).args(["--headless", "--import"])
+                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+                let t = Instant::now();
+                while matches!(c.try_wait(), Ok(None)) {
+                    if t.elapsed() > Duration::from_secs(120) { let _ = c.kill(); break; }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                let _ = c.wait();
+            }
         }
         let frames = (seconds.clamp(1.0, 30.0) * 60.0) as u32;
         let child = Command::new(engine)
