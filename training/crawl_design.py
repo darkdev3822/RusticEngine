@@ -66,11 +66,14 @@ def main():
             if g in done:
                 continue
             try:
-                hit = get({"action": "query", "list": "search", "srsearch": g + " video game", "srlimit": 1})["query"]["search"]
-                if not hit:
-                    print("no match:", g); continue
-                title = hit[0]["title"]
-                page = get({"action": "query", "prop": "extracts", "explaintext": 1, "titles": title, "redirects": 1})["query"]["pages"][0]
+                # The exact article title first (names here are written as Wikipedia titles), search only as a fallback.
+                page = get({"action": "query", "prop": "extracts", "explaintext": 1, "titles": g, "redirects": 1})["query"]["pages"][0]
+                if page.get("missing") or not page.get("extract"):
+                    hit = get({"action": "query", "list": "search", "srsearch": g + " video game", "srlimit": 1})["query"]["search"]
+                    if not hit:
+                        print("no match:", g); continue
+                    page = get({"action": "query", "prop": "extracts", "explaintext": 1, "titles": hit[0]["title"], "redirects": 1})["query"]["pages"][0]
+                title = page["title"]
                 secs = sections(page.get("extract", ""))
                 keep = {"Intro": secs.get("Intro", "")[:2500]}
                 for k, v in secs.items():

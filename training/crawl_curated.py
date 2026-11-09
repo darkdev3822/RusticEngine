@@ -14,7 +14,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "corpus/curated"
 CUTOFF = "2023-01-01"
-CODE = ["*.rs", "*.gd", "*.cs", "*.cpp", "*.hpp", "*.h", "*.c", "*.java", "*.lua", "*.md", "*.txt", "Cargo.toml", "project.godot", "*.tscn"]
+CODE = ["*.rs", "*.gd", "*.C", "*.H", "*.cs", "*.cpp", "*.hpp", "*.h", "*.c", "*.java", "*.lua", "*.md", "*.txt", "Cargo.toml", "project.godot", "*.tscn"]
 
 REPOS = [
     # name, url, license, language, why, head?
