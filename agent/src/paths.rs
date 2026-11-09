@@ -11,6 +11,9 @@ const PATHS: &[(&str, &str)] = &[
     ("survival", include_str!("../paths/survival.md")),
     ("roguelike", include_str!("../paths/roguelike.md")),
     ("cozy-farming", include_str!("../paths/cozy-farming.md")),
+    ("metroidvania", include_str!("../paths/metroidvania.md")),
+    ("tower-defense", include_str!("../paths/tower-defense.md")),
+    ("turn-based-rpg", include_str!("../paths/turn-based-rpg.md")),
 ];
 
 fn title(text: &str) -> &str {
