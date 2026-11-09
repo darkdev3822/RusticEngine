@@ -109,7 +109,7 @@ pub fn definitions() -> Vec<ToolDef> {
         ToolDef { name: "find_example", description: "Search a library of real, working godot-rust 0.5 code for how to do something. Use it before writing an API you're not sure about.",
             schema: json!({"type": "object", "properties": {
                 "query": {"type": "string", "description": "Class, method or idea, e.g. 'Timer timeout connect', 'Tween tween_property', 'get_overlapping_bodies'"}}, "required": ["query"]}) },
-        ToolDef { name: "game_design", description: "Look up game design knowledge: what players love about a game (e.g. 'Dark Souls', 'Stardew Valley') or how a design idea works and feels (e.g. 'coyote time', 'stamina', 'roguelite'). Use it to understand what the creator means, then ask them.",
+        ToolDef { name: "game_design", description: "Look up game design knowledge: what players love about a game (e.g. 'Dark Souls', 'Stardew Valley') or how a design idea works and feels (e.g. 'coyote time', 'stamina', 'roguelite'), or how a 3D modeling technique works (e.g. 'inset faces', 'loop cut', 'bevel'). Use it to understand what the creator means, then ask them.",
             schema: json!({"type": "object", "properties": {
                 "query": {"type": "string", "description": "A game name or a design idea"}}, "required": ["query"]}) },
         ToolDef { name: "journal", description: "The creator's Concept Journal (design/journal/): search it for their ideas, or add a new entry when they ask you to save an idea. Never change their existing entries without asking.",

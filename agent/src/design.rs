@@ -1,5 +1,6 @@
 //! Game design knowledge: why beloved games feel the way they do (training/design_patterns.py,
-//! verified code) and what players love about specific games (Wikipedia, CC BY-SA 4.0).
+//! verified code), what players love about specific games (Wikipedia, CC BY-SA 4.0), and how
+//! modeling techniques work (Blender Manual by the Blender Documentation Team, CC BY-SA 4.0).
 //! Ember uses it to understand what a creator means by "like Dark Souls", never to copy a game.
 use std::sync::OnceLock;
 
@@ -15,6 +16,8 @@ fn entries() -> &'static Vec<(Value, Vec<String>)> {
         DATA.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).map(|v| {
             let text = if v["kind"] == "pattern" {
                 format!("{} {} {}", v["name"], v["keywords"], v["seen_in"])
+            } else if v["kind"] == "manual" {
+                format!("{} {}", v["name"], v["keywords"])
             } else {
                 format!("{} {}", v["name"], v["name"])
             };
@@ -55,6 +58,10 @@ pub fn search(query: &str) -> String {
                 out += &format!("Verified godot-rust code:\n```rust\n{}\n```\n", s("code"));
             }
             out += &format!("(Source: {})\n\n", s("source"));
+        } else if v["kind"] == "manual" {
+            let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
+            let text: String = s("text").chars().take(if i == 0 { 1600 } else { 600 }).collect();
+            out += &format!("## {}\n{text}\n(Source: {})\n\n", s("name"), s("source"));
         } else {
             out += &format!("## {} (Wikipedia, CC BY-SA)\n", v["name"].as_str().unwrap_or(""));
             for (p, n) in [("intro", 500), ("gameplay", 1800), ("development", 700), ("design", 700), ("reception", 500)] {
@@ -62,6 +69,11 @@ pub fn search(query: &str) -> String {
             }
             out += "\n";
         }
+    }
+    if out.contains("(Blender)") {
+        return out + "The Studio's 3D modeler has: G move, R rotate, S scale (X/Y/Z to lock an axis, type a number), E extrude, I inset, \
+                      D subdivide, F fill, M merge, Flip, Delete, Mirror X, P paint. Explain the idea in Studio terms, step by step, and say \
+                      plainly if the Studio can't do something yet (then Blender, which is free, can).";
     }
     out + "Use this to understand what the creator means, then ASK which part they want. Their game should be theirs, not a copy."
 }

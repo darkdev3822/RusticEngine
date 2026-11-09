@@ -6,3 +6,8 @@ Rebuild with training/build_examples.py.
 Entries whose "src" starts with "github" come from open-source projects found by
 training/crawl_github.py. Only permissively licensed repos are used, and the license is named in
 each entry's "src". Entries marked "ember-verified" are RusticEngine's own training examples.
+
+Blender Manual excerpts (design.jsonl entries with "kind": "manual")
+  The Blender Manual by the Blender Documentation Team (https://projects.blender.org/blender/documentation),
+  https://docs.blender.org/manual/, licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+  Text was converted from reStructuredText and shortened; each entry links its source page.
