@@ -221,7 +221,7 @@ impl Session {
                 }
                 // Small models sometimes describe a change they never made. Catch that once.
                 let last = match self.history.last() { Some(Msg::Assistant { text, .. }) => text.clone(), _ => String::new() };
-                if !journal_saved && !claim_checked && claims_journal_save(&last) {
+                if !journal_saved && !changed_any && !claim_checked && claims_journal_save(&last) {
                     emit(json!({"type": "guard", "name": "journal_claim"}));
                     claim_checked = true;
                     self.history.push(Msg::User(
