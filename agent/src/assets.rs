@@ -209,9 +209,67 @@ pub fn design_context(root: &Path) -> String {
     if !art.is_empty() {
         out += &format!("\n## Concept art they shared\n{}\n", art.join("\n"));
     }
+    if let Ok(t) = fs::read_to_string(root.join("design/path.md")) {
+        out += &format!("\n{}\n", t.replace("# Game Path", "## Their Game Path (open the current step with game_path)"));
+    }
+    let entries = journal_entries(root);
+    if !entries.is_empty() {
+        out += "\n## Concept Journal (design/journal/: the creator's ideas; read an entry before relying on it)\n";
+        for (path, title, preview, words) in entries.iter().take(40) {
+            out += &format!("- {path}: \"{title}\" ({words} words) {preview}\n");
+        }
+    }
     if let Ok(t) = fs::read_to_string(root.join("design/assets.md")) {
         let t: String = t.chars().take(2000).collect();
         out += &format!("\n## Asset list (design/assets.md)\n{t}\n");
     }
     out
+}
+
+/// (path, title, preview, word count) for each journal entry, newest first.
+pub fn journal_entries(root: &Path) -> Vec<(String, String, String, usize)> {
+    let mut out = vec![];
+    let Ok(rd) = fs::read_dir(root.join("design/journal")) else { return out };
+    let mut files: Vec<_> = rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "md")).collect();
+    files.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).ok()));
+    for e in files {
+        let Ok(t) = fs::read_to_string(e.path()) else { continue };
+        let name = e.file_name().to_string_lossy().to_string();
+        let mut lines = t.lines().filter(|l| !l.trim().is_empty());
+        let title = lines.next().unwrap_or(&name).trim_start_matches('#').trim().to_string();
+        let preview: String = lines.collect::<Vec<_>>().join(" ").chars().take(110).collect();
+        out.push((format!("design/journal/{name}"), title, preview, t.split_whitespace().count()));
+    }
+    out
+}
+
+/// Search the journal for entries mentioning any of the words in `query`.
+pub fn journal_search(root: &Path, query: &str) -> String {
+    let words: Vec<String> = query.to_lowercase().split_whitespace().filter(|w| w.len() > 2).map(String::from).collect();
+    let mut hits = vec![];
+    for (path, title, _, _) in journal_entries(root) {
+        let Ok(t) = fs::read_to_string(root.join(&path)) else { continue };
+        let lower = t.to_lowercase();
+        let score = words.iter().filter(|w| lower.contains(w.as_str())).count();
+        if score == 0 { continue; }
+        // Show the lines that mention the query, with a little context.
+        let lines: Vec<&str> = t.lines().collect();
+        let mut keep = vec![false; lines.len()];
+        for (i, l) in lines.iter().enumerate() {
+            if words.iter().any(|w| l.to_lowercase().contains(w.as_str())) {
+                for k in i.saturating_sub(1)..(i + 2).min(lines.len()) { keep[k] = true; }
+            }
+        }
+        let mut snippets = vec![];
+        let mut cur: Vec<&str> = vec![];
+        for (i, l) in lines.iter().enumerate() {
+            if keep[i] { cur.push(l); } else if !cur.is_empty() { snippets.push(cur.join("\n")); cur.clear(); }
+        }
+        if !cur.is_empty() { snippets.push(cur.join("\n")); }
+        snippets.truncate(6);
+        hits.push((score, format!("## {title} ({path})\n{}", snippets.join("\n...\n"))));
+    }
+    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    if hits.is_empty() { return format!("Nothing in the journal mentions {query}."); }
+    hits.into_iter().take(4).map(|h| h.1).collect::<Vec<_>>().join("\n\n")
 }

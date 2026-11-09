@@ -149,6 +149,24 @@ def main():
                 if GODOT_USE.search(r["code"]) and per_repo.get(name, 0) < 250:
                     per_repo[name] = per_repo.get(name, 0) + 1
                     rows.append(r)
+    # Official Godot 4 demos (MIT): GDScript, but the API names are the same in Rust (snake_case).
+    demos = C / "curated/godot-demo-projects"
+    for p in sorted(demos.rglob("*.gd")) if demos.exists() else []:
+        rel = str(p.relative_to(demos))
+        lines = p.read_text(errors="ignore").split("\n")
+        starts = [i for i, l in enumerate(lines) if l.startswith("func ")]
+        for n, st in enumerate(starts):
+            en = starts[n + 1] if n + 1 < len(starts) else len(lines)
+            body = "\n".join(lines[st:en]).rstrip()
+            if 3 <= body.count("\n") <= 60 and "." in body:
+                rows.append({"src": f"godot-demo-projects/{rel} (GDScript, MIT: translate to Rust)", "title": lines[st][5:].split("(")[0], "code": body})
+    # Solved godot-rust problems (crawl_debug.py). Older issues describe APIs that have since changed.
+    qa = C / "debug/gdext_qa.jsonl"
+    for line in open(qa) if qa.exists() else []:
+        q = json.loads(line)
+        if q["date"] >= "2025-01-01" and ({"bug", "question"} & set(q["labels"])):
+            text = f"QUESTION: {q['question'][:1200]}\n\nMAINTAINER ANSWER: {q['answers'][0][:1800]}"
+            rows.append({"src": f"gdext issue {q['url']} ({q['date']})", "title": q["title"], "code": text})
     out = []
     for r in rows:
         key = re.sub(r"\s+", "", r["code"])

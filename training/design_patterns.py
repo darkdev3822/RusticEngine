@@ -805,6 +805,276 @@ impl TurnClock {
     source="Shattered Pixel Dungeon actors/Actor.java (github.com/00-Evan/shattered-pixel-dungeon, GPL-3.0)",
 )
 
+# ---------------------------------------------------------------------------------------------
+pattern(
+    name="Disposition and haggling prices (Morrowind-style)",
+    keywords="barter trade merchant shop price disposition persuasion mercantile haggle rpg elder scrolls economy npc relationship",
+    feel="Being liked pays off: charming or befriending a merchant gets you better deals, so social skills feel as valuable as a sword.",
+    seen_in="The Elder Scrolls III: Morrowind, Oblivion, Fallout (Barter skill), many CRPGs.",
+    how="""From OpenMW's MechanicsManager::getBarterOffer (GPL-3.0):
+- The player's side is (disposition - 50 + Mercantile + Luck/10 + Personality/5), the merchant's side is (Mercantile + Luck/10 + Personality/5), each scaled by how tired they are.
+- Buying costs base price x (100 - 0.5 x (player - merchant)) / 100; selling pays base price x (50 - 0.5 x (merchant - player)) / 100. So an equal match buys at full price and sells at half, and every point of disposition or skill shifts it.
+- Disposition (0-100) is how much this NPC likes you; persuasion, bribes, crimes and faction membership move it.""",
+    knobs="How strongly disposition affects price. The default sell ratio (50% is harsh, 75% generous). Caps so prices never invert (never sell for more than you bought).",
+    base="Node", cls="Merchant",
+    code=r"""use godot::classes::{INode, Node};
+use godot::prelude::*;
+
+#[derive(GodotClass)]
+#[class(base = Node)]
+pub struct Merchant {
+    /// How much this merchant likes the player (0-100, 50 is neutral)
+    #[export]
+    disposition: i32,
+    /// The merchant's own haggling skill (0-100)
+    #[export]
+    mercantile: i32,
+    base: Base<Node>,
+}
+
+#[godot_api]
+impl INode for Merchant {
+    fn init(base: Base<Node>) -> Self {
+        Self { disposition: 50, mercantile: 30, base }
+    }
+}
+
+#[godot_api]
+impl Merchant {
+    /// Price the player pays. player_skill is their haggling skill (0-100).
+    #[func]
+    pub fn buy_price(&self, base_price: i32, player_skill: i32) -> i32 {
+        let edge = self.player_edge(player_skill);
+        let price = base_price as f32 * (100.0 - 0.5 * edge) / 100.0;
+        (price.round() as i32).max(1)
+    }
+
+    /// What the merchant pays the player. Never more than the merchant would sell it for.
+    #[func]
+    pub fn sell_price(&self, base_price: i32, player_skill: i32) -> i32 {
+        let edge = self.player_edge(player_skill);
+        let price = base_price as f32 * (50.0 + 0.5 * edge) / 100.0;
+        let price = (price.round() as i32).max(1);
+        price.min(self.buy_price(base_price, player_skill))
+    }
+
+    #[func]
+    pub fn change_disposition(&mut self, amount: i32) {
+        self.disposition = (self.disposition + amount).clamp(0, 100);
+    }
+
+    /// Morrowind's idea: (how much they like you + your skill) against their skill.
+    fn player_edge(&self, player_skill: i32) -> f32 {
+        let player = (self.disposition - 50 + player_skill.clamp(0, 100)) as f32;
+        let merchant = self.mercantile.clamp(0, 100) as f32;
+        player - merchant
+    }
+}
+""",
+    source="OpenMW apps/openmw/mwmechanics/mechanicsmanagerimp.cpp getBarterOffer (github.com/OpenMW/openmw, GPL-3.0)",
+)
+
+# ---------------------------------------------------------------------------------------------
+pattern(
+    name="Crime, witnesses and bounty (Elder Scrolls-style)",
+    keywords="crime stealing theft bounty guards witnesses stealth reputation consequences law open world elder scrolls skyrim morrowind",
+    feel="The world notices what you do, but only if someone saw it. Stealing becomes a tense little stealth game, and getting caught has real but fixable consequences.",
+    seen_in="The Elder Scrolls series, Fallout, Kingdom Come: Deliverance, Hitman.",
+    how="""From OpenMW's MechanicsManager::reportCrime (GPL-3.0):
+- Each crime type has a fixed bounty (trespassing, pickpocketing, assault, murder); theft scales with the stolen item's value (with a minimum of 1).
+- Each crime also lowers the victim's (and witnesses') disposition toward you.
+- Only actors within an alarm radius can witness and react; if nobody saw it, there's no crime.
+- Guards then confront you: pay the fine, go to jail, or resist.""",
+    knobs="Alarm radius (bigger = harder to steal). Bounty per crime. Whether bounties fade over time. What guards offer (fine, jail, fight).",
+    base="Node2D", cls="CrimeWatch",
+    code=r"""use godot::classes::{INode2D, Node2D};
+use godot::prelude::*;
+
+/// Put one in the level. Call report_crime when the player steals or attacks; anyone in the
+/// "witnesses" group close enough to see it raises the alarm.
+#[derive(GodotClass)]
+#[class(base = Node2D)]
+pub struct CrimeWatch {
+    #[export]
+    alarm_radius: f32,
+    bounty: i32,
+    base: Base<Node2D>,
+}
+
+#[godot_api]
+impl INode2D for CrimeWatch {
+    fn init(base: Base<Node2D>) -> Self {
+        Self { alarm_radius: 300.0, bounty: 0, base }
+    }
+}
+
+#[godot_api]
+impl CrimeWatch {
+    #[signal]
+    pub fn crime_witnessed(bounty: i32);
+
+    /// kind: "trespass", "theft", "assault" or "murder". value: the stolen item's worth (theft only).
+    /// Returns true if someone saw it.
+    #[func]
+    pub fn report_crime(&mut self, at: Vector2, kind: GString, value: i32) -> bool {
+        let tree = self.base().get_tree();
+        let radius = self.alarm_radius;
+        let seen = tree
+            .get_nodes_in_group("witnesses")
+            .iter_shared()
+            .filter_map(|n| n.try_cast::<Node2D>().ok())
+            .any(|w| w.get_global_position().distance_to(at) <= radius);
+        if !seen {
+            return false; // no witness, no crime
+        }
+        let fine = match kind.to_string().as_str() {
+            "trespass" => 5,
+            "theft" => (value / 2).max(1),
+            "assault" => 40,
+            "murder" => 1000,
+            _ => 10,
+        };
+        self.bounty += fine;
+        let bounty = self.bounty;
+        self.signals().crime_witnessed().emit(bounty);
+        true
+    }
+
+    #[func]
+    pub fn pay_bounty(&mut self) -> i32 {
+        let paid = self.bounty;
+        self.bounty = 0;
+        paid
+    }
+}
+""",
+    source="OpenMW apps/openmw/mwmechanics/mechanicsmanagerimp.cpp reportCrime (github.com/OpenMW/openmw, GPL-3.0)",
+)
+
+# ---------------------------------------------------------------------------------------------
+pattern(
+    name="Quests as numbered stages (Bethesda-style)",
+    keywords="quest journal stages objectives branching story progress rpg elder scrolls fallout quest log mission",
+    feel="Quests react to what you actually did, can branch and end in different ways, and the journal always tells you where you stand.",
+    seen_in="Morrowind, Oblivion, Skyrim, Fallout 3/4/New Vegas.",
+    how="Every quest is a number that only goes up: 0 = not started, 10 = talked to the farmer, 20 = found the cave, 100 = done (spared the bandit), 110 = done (killed the bandit). Each stage has a journal line. Any dialogue, trigger or script can check 'is quest X at stage 20 or more?' or set a new stage. Branches are just different stage numbers, so quests stay easy to reason about and to save.",
+    knobs="How many branches. Whether stages can be skipped (sequence breaking). How much the journal reveals.",
+    base="Node", cls="QuestLog",
+    code=r"""use std::collections::HashMap;
+
+use godot::classes::{INode, Node};
+use godot::prelude::*;
+
+#[derive(GodotClass)]
+#[class(base = Node)]
+pub struct QuestLog {
+    stages: HashMap<String, i32>,
+    entries: Vec<String>,
+    base: Base<Node>,
+}
+
+#[godot_api]
+impl INode for QuestLog {
+    fn init(base: Base<Node>) -> Self {
+        Self { stages: HashMap::new(), entries: Vec::new(), base }
+    }
+}
+
+#[godot_api]
+impl QuestLog {
+    #[signal]
+    pub fn journal_updated(quest: GString, stage: i32, text: GString);
+
+    /// Stages only move forward, so replaying a trigger can't undo progress.
+    #[func]
+    pub fn set_stage(&mut self, quest: GString, stage: i32, journal_text: GString) {
+        let key = quest.to_string();
+        if self.stage(quest.clone()) >= stage {
+            return;
+        }
+        self.stages.insert(key, stage);
+        self.entries.push(format!("{quest} ({stage}): {journal_text}"));
+        self.signals().journal_updated().emit(&quest, stage, &journal_text);
+    }
+
+    #[func]
+    pub fn stage(&self, quest: GString) -> i32 {
+        *self.stages.get(&quest.to_string()).unwrap_or(&0)
+    }
+
+    #[func]
+    pub fn journal(&self) -> PackedStringArray {
+        self.entries.iter().map(|e| GString::from(e.as_str())).collect()
+    }
+}
+""",
+    source="Design described from the games (the Creation Kit's quest stage system).",
+)
+
+# ---------------------------------------------------------------------------------------------
+pattern(
+    name="NPC daily schedules",
+    keywords="npc schedule routine daily life radiant ai town living world day night simulation oblivion skyrim stardew",
+    feel="Towns feel alive: the baker opens shop in the morning, everyone's at the tavern in the evening, and players learn people's habits.",
+    seen_in="Oblivion (Radiant AI), Skyrim, Stardew Valley, Majora's Mask, Ultima VII.",
+    how="Each NPC has a list of (start hour, place) entries. A world clock advances; each NPC finds the latest entry whose hour has passed and walks there. That's it: the illusion of life comes from many simple routines overlapping. Oblivion's Radiant AI added needs (eat, sleep) choosing between packages, but a fixed timetable already goes a long way.",
+    knobs="Length of an in-game hour. How many places per day. Whether routines change on special days or after quests.",
+    base="Node2D", cls="Villager",
+    code=r"""use godot::classes::{INode2D, Node2D};
+use godot::prelude::*;
+
+/// Walks to a different place depending on the hour. Call set_hour from your day/night clock.
+#[derive(GodotClass)]
+#[class(base = Node2D)]
+pub struct Villager {
+    #[export]
+    speed: f32,
+    schedule: Vec<(f32, Vector2)>,
+    hour: f32,
+    base: Base<Node2D>,
+}
+
+#[godot_api]
+impl INode2D for Villager {
+    fn init(base: Base<Node2D>) -> Self {
+        // (hour, place): home at night, the forge by day, the tavern in the evening
+        let schedule = vec![(6.0, Vector2::new(300.0, 200.0)), (18.0, Vector2::new(800.0, 400.0)), (22.0, Vector2::new(100.0, 500.0))];
+        Self { speed: 60.0, schedule, hour: 8.0, base }
+    }
+
+    fn process(&mut self, delta: f64) {
+        let target = self.current_place();
+        let position = self.base().get_position();
+        let step = self.speed * delta as f32;
+        let next = if position.distance_to(target) <= step { target } else { position + (target - position).normalized() * step };
+        self.base_mut().set_position(next);
+    }
+}
+
+#[godot_api]
+impl Villager {
+    #[func]
+    pub fn set_hour(&mut self, hour: f32) {
+        self.hour = hour % 24.0;
+    }
+
+    #[func]
+    pub fn add_stop(&mut self, hour: f32, place: Vector2) {
+        self.schedule.push((hour, place));
+        self.schedule.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+
+    /// The latest stop whose hour has passed (wrapping around midnight).
+    fn current_place(&self) -> Vector2 {
+        let earlier = self.schedule.iter().filter(|(h, _)| *h <= self.hour).last();
+        let wrapped = self.schedule.last();
+        earlier.or(wrapped).map(|(_, p)| *p).unwrap_or(Vector2::ZERO)
+    }
+}
+""",
+    source="Design described from the games.",
+)
+
 # ------------------------------------------------------------------ design-only philosophy notes
 pattern(
     name="Interconnected world with shortcuts (Souls-style level design)",

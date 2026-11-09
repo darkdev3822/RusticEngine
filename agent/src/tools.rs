@@ -112,6 +112,16 @@ pub fn definitions() -> Vec<ToolDef> {
         ToolDef { name: "game_design", description: "Look up game design knowledge: what players love about a game (e.g. 'Dark Souls', 'Stardew Valley') or how a design idea works and feels (e.g. 'coyote time', 'stamina', 'roguelite'). Use it to understand what the creator means, then ask them.",
             schema: json!({"type": "object", "properties": {
                 "query": {"type": "string", "description": "A game name or a design idea"}}, "required": ["query"]}) },
+        ToolDef { name: "journal", description: "The creator's Concept Journal (design/journal/): search it for their ideas, or add a new entry when they ask you to save an idea. Never change their existing entries without asking.",
+            schema: json!({"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["search", "add"]},
+                "query": {"type": "string", "description": "search: words to look for"},
+                "title": {"type": "string", "description": "add: the entry's title"},
+                "text": {"type": "string", "description": "add: the entry, in the creator's words"}}, "required": ["action"]}) },
+        ToolDef { name: "game_path", description: "Game Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming). No arguments lists them; a path opens its overview; a path and step opens that step.",
+            schema: json!({"type": "object", "properties": {
+                "path": {"type": "string", "description": "e.g. open-world-rpg"},
+                "step": {"type": "integer", "description": "Step number, starting at 1"}}}) },
         ToolDef { name: "asset_info", description: "Describe a file the creator added: an image's size and whether it looks like a sprite sheet, a 3D model's parts and animations, a sound's length, a scene's nodes. Works on folders too.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. assets/hero.png or design/concept"}}, "required": ["path"]}) },
@@ -138,6 +148,13 @@ pub fn summary(name: &str, args: &Value) -> String {
         "class_info" => format!("Looking up {}", args["class_name"].as_str().unwrap_or("?")),
         "asset_info" => format!("Inspecting {p}"),
         "find_example" => format!("Finding examples of {}", args["query"].as_str().unwrap_or("?")),
+        "journal" => if args["action"] == "add" { format!("Saving \"{}\" to the journal", args["title"].as_str().unwrap_or("idea")) }
+                     else { format!("Searching the journal for {}", args["query"].as_str().unwrap_or("?")) },
+        "game_path" => match (args["path"].as_str(), args["step"].as_u64()) {
+            (None, _) => "Looking at the Game Paths".into(),
+            (Some(p), None) => format!("Opening the {p} path"),
+            (Some(p), Some(n)) => format!("Opening step {n} of the {p} path"),
+        },
         "game_design" => format!("Studying the design of {}", args["query"].as_str().unwrap_or("?")),
         "look_at_image" => format!("Looking at {p}"),
         "set_mode" => format!("Switching to {} mode", args["mode"].as_str().unwrap_or("?")),
@@ -159,6 +176,26 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 impl Project {
+    fn journal(&self, args: &Value) -> Outcome {
+        if args["action"] != "add" {
+            return ok(crate::assets::journal_search(&self.root, args["query"].as_str().unwrap_or("")));
+        }
+        let title = args["title"].as_str().unwrap_or("").trim();
+        let text = args["text"].as_str().unwrap_or("").trim();
+        if title.is_empty() || text.is_empty() { return fail("Give the entry a title and some text."); }
+        let slug: String = title.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+        let slug = slug.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
+        let dir = self.root.join("design/journal");
+        let _ = fs::create_dir_all(&dir);
+        let mut name = format!("{}.md", if slug.is_empty() { "idea" } else { &slug });
+        let mut n = 2;
+        while dir.join(&name).exists() { name = format!("{slug}-{n}.md"); n += 1; }  // never overwrite their entries
+        match fs::write(dir.join(&name), format!("# {title}\n\n{text}\n")) {
+            Ok(()) => Outcome { files_changed: true, ..ok(format!("Saved to design/journal/{name}.")) },
+            Err(e) => fail(format!("Couldn't save: {e}")),
+        }
+    }
+
     /// Load an image for look_at_image: (mime type, base64 data).
     pub fn image(&self, path: &str) -> Result<(&'static str, String), String> {
         let mime = crate::assets::mime_of(path).ok_or_else(|| format!("{path} isn't a PNG, JPG, WebP or GIF image."))?;
@@ -187,6 +224,14 @@ impl Project {
     fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
+            "journal" => self.journal(args),
+            "game_path" => match args["path"].as_str().filter(|p| !p.is_empty()) {
+                None => ok(crate::paths::list()),
+                Some(p) => match crate::paths::open(&self.root, p, args["step"].as_u64().map(|n| n as usize)) {
+                    Ok((t, changed)) => Outcome { files_changed: changed, ..ok(t) },
+                    Err(e) => fail(e),
+                },
+            },
             "game_design" => ok(crate::design::search(args["query"].as_str().unwrap_or(""))),
             "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 2)),
             "asset_info" => match self.resolve(path, false) {

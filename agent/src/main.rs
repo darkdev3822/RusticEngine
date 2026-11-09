@@ -12,6 +12,7 @@
 mod assets;
 mod design;
 mod examples;
+mod paths;
 mod llm;
 mod tools;
 
