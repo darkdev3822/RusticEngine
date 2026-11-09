@@ -112,6 +112,21 @@ fn claims_change(text: &str) -> bool {
     says_i || t.contains("press **play**") || t.contains("press play")
 }
 
+/// "I've saved it to your journal" without a journal call.
+fn claims_journal_save(text: &str) -> bool {
+    let t = text.to_lowercase().replace('\u{2019}', "'");
+    t.contains("design/journal/") || (t.contains("journal") && ["i've saved", "i saved", "saved it", "i've added", "i added", "i've noted", "i noted", "i've written", "i wrote"].iter().any(|v| t.contains(v)))
+}
+
+/// The reply ends on a promise to look something up ("Let me check...") instead of doing it.
+fn promises_lookup(text: &str) -> bool {
+    let t = text.trim_end().to_lowercase().replace('\u{2019}', "'");
+    let tail = t.rsplit(['\n']).next().unwrap_or("");
+    (tail.starts_with("let me ") || tail.starts_with("i'll ") || tail.starts_with("i will ") || tail.starts_with("one moment"))
+        && (tail.ends_with(':') || tail.ends_with("...") || tail.ends_with('.') || tail.ends_with('\u{2026}'))
+        && !tail.contains('?') && !tail.starts_with("let me know")
+}
+
 struct Session {
     cfg: Config,
     project: tools::Project,
@@ -154,6 +169,8 @@ impl Session {
         let mut auto_checks = 0;
         let mut changed_any = false;
         let mut claim_checked = false;
+        let mut journal_saved = false;
+        let mut promise_checked = false;
 
         for _ in 0..MAX_STEPS {
             trim_history(&mut self.history);
@@ -204,6 +221,21 @@ impl Session {
                 }
                 // Small models sometimes describe a change they never made. Catch that once.
                 let last = match self.history.last() { Some(Msg::Assistant { text, .. }) => text.clone(), _ => String::new() };
+                if !journal_saved && !claim_checked && claims_journal_save(&last) {
+                    claim_checked = true;
+                    self.history.push(Msg::User(
+                        "[Automatic check] Your reply says you saved this to the Concept Journal, but nothing was saved. \
+                         Call the journal tool now (action \"add\", a short title, and their idea in their own words as text), \
+                         then reply in one or two sentences.".into()));
+                    continue;
+                }
+                if !promise_checked && promises_lookup(&last) {
+                    promise_checked = true;
+                    self.history.push(Msg::User(
+                        "[Automatic check] You said you'd look something up but didn't call a tool. Call it now \
+                         (journal, game_path, game_design, find_example, read_file...), then answer.".into()));
+                    continue;
+                }
                 if !changed_any && !claim_checked && claims_change(&last) {
                     claim_checked = true;
                     emit(json!({"type": "text", "delta": "\n\nWait - I haven't actually saved that change yet. Doing it now...\n\n"}));
@@ -246,6 +278,7 @@ impl Session {
                     emit(json!({"type": "files_changed", "path": path}));
                 }
                 if outcome.rust_built { emit(json!({"type": "rust_built"})); }
+                if call.name == "journal" && call.args["action"] == "add" && outcome.ok { journal_saved = true; }
                 self.history.push(Msg::Tool { id: call.id, name: call.name, content: outcome.content });
             }
         }
@@ -338,5 +371,24 @@ fn main() {
             "reset" => session.history.clear(),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    #[test]
+    fn detects_fake_journal_saves() {
+        assert!(claims_journal_save("I've saved it in **design/journal/lighthouse.md**. What would you call it?"));
+        assert!(claims_journal_save("I saved that to your journal."));
+        assert!(!claims_journal_save("Want me to save this to your journal?"));
+    }
+    #[test]
+    fn detects_dangling_promises() {
+        assert!(promises_lookup("Let me look at your Concept Journal, the place where we save ideas."));
+        assert!(promises_lookup("Great idea!\nI'll check the Game Paths..."));
+        assert!(!promises_lookup("Let me know which one you like?"));
+        assert!(!promises_lookup("Let me know what you think."));
+        assert!(!promises_lookup("Here's what I found. Want to start?"));
     }
 }
