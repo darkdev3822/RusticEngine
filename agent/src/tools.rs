@@ -118,7 +118,7 @@ pub fn definitions() -> Vec<ToolDef> {
                 "query": {"type": "string", "description": "search: words to look for"},
                 "title": {"type": "string", "description": "add: the entry's title"},
                 "text": {"type": "string", "description": "add: the entry, in the creator's words"}}, "required": ["action"]}) },
-        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making 3D models in the Studio (a prop, a character, an environment kit). No arguments lists them; a path opens its overview; a path and step opens that step.",
+        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making assets in the Studio (3D models: a prop, a character, an environment kit; sound effects). No arguments lists them; a path opens its overview; a path and step opens that step.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. open-world-rpg"},
                 "step": {"type": "integer", "description": "Step number, starting at 1"}}}) },

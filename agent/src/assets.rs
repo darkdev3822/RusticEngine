@@ -175,6 +175,30 @@ fn rmodel_summary(v: &Value, rel: &str) -> String {
         if palette.is_empty() { "none".into() } else { palette.join(", ") })
 }
 
+/// A sound made in the Studio's Sound Effects maker (.rsfx, JSON): what it's made of, in sound-design words.
+fn rsfx_summary(v: &Value, rel: &str) -> String {
+    let f = |k: &str| v[k].as_f64().unwrap_or(0.0);
+    let mut parts = vec![format!("{} wave", v["wave"].as_str().unwrap_or("square"))];
+    let len = f("attack") + f("sustain") + f("decay");
+    parts.push(format!("{len:.2} s long (attack {:.2}, sustain {:.2}, decay {:.2} s{})", f("attack"), f("sustain"), f("decay"),
+        if f("punch") > 0.01 { format!(", punch {:.2}", f("punch")) } else { String::new() }));
+    parts.push(format!("starts at {:.0} Hz", f("freq")));
+    if f("slide").abs() > 0.01 { parts.push(format!("pitch slides {} {:.1} octaves/s", if f("slide") > 0.0 { "up" } else { "down" }, f("slide").abs())); }
+    if f("freq_min") > 0.0 && f("slide") < 0.0 { parts.push(format!("stops when the pitch falls below {:.0} Hz", f("freq_min"))); }
+    if f("arp_time") > 0.0 && f("arp_semitones") != 0.0 { parts.push(format!("pitch jumps {:+.0} semitones after {:.2} s", f("arp_semitones"), f("arp_time"))); }
+    if f("vibrato_depth") > 0.0 && f("vibrato_speed") > 0.0 { parts.push(format!("vibrato {:.1} semitones at {:.0} Hz", f("vibrato_depth"), f("vibrato_speed"))); }
+    if f("repeat") > 0.005 { parts.push(format!("repeats every {:.2} s", f("repeat"))); }
+    if f("lowpass") > 0.0 { parts.push(format!("low-pass at {:.0} Hz", f("lowpass"))); }
+    if f("highpass") > 0.0 { parts.push(format!("high-pass at {:.0} Hz", f("highpass"))); }
+    if f("phaser_ms") > 0.0 { parts.push("phaser".into()); }
+    parts.push(format!("volume {:.2}", f("volume")));
+    let stem = rel.trim_end_matches(".rsfx");
+    format!("Studio sound effect (made in RusticEngine's Studio tab, Sound Effects). {}.\n\
+             The game uses {stem}.wav (exported on every save). Its controls: wave, Attack/Sustain/Punch/Decay, Start pitch, Slide, Slide curve, \
+             Stop below, Vibrato depth/speed, Pitch jump/Jump after, Repeat every, Square duty/Duty sweep, Phaser/Phaser sweep, Low-pass/Low-pass sweep, High-pass, Volume.",
+        parts.join(", "))
+}
+
 pub fn info(full: &Path, rel: &str) -> Result<String, String> {
     if full.is_dir() {
         let mut items: Vec<String> = fs::read_dir(full).map_err(|e| e.to_string())?
@@ -200,6 +224,7 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
         "glb" => glb_json(&b).map(|v| format!("3D model (glTF binary).\n{}", gltf_summary(&v))).unwrap_or("3D model (couldn't read it).".into()),
         "gltf" => serde_json::from_slice::<Value>(&b).map(|v| format!("3D model (glTF).\n{}", gltf_summary(&v))).unwrap_or("glTF file (couldn't parse it).".into()),
         "rmodel" => serde_json::from_slice::<Value>(&b).map(|v| rmodel_summary(&v, rel)).unwrap_or("Studio model (couldn't parse it).".into()),
+        "rsfx" => serde_json::from_slice::<Value>(&b).map(|v| rsfx_summary(&v, rel)).unwrap_or("Studio sound (couldn't parse it).".into()),
         "fbx" | "obj" | "blend" | "dae" => format!("3D model ({e}). Godot imports it as a scene (.blend needs Blender installed). \
                                                     If it gives trouble, exporting it as .glb from the modelling program is the most reliable."),
         "wav" => wav_summary(&b).unwrap_or("WAV sound.".into()) + "\nPlay it with an AudioStreamPlayer (or AudioStreamPlayer2D for sound in the world).",

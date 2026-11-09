@@ -705,6 +705,48 @@ HALF_BODY = rmodel(_hv, _hf[:3] + _hf[4:], ["#3a6ea5"] * 5, mirror=True)  # no f
 STUDIO_CTX = "in the Studio's 3D modeler: res://assets/models/{name}.rmodel ({nv} vertices, {nf} faces, {nc} colors{mir}), {sel}, picture from last save: design/studio/{name}.png"
 
 
+def render_preview(src, out_path, size=(640, 480)):
+    """A flat-shaded picture of an .rmodel, like the Studio's preview (design/studio/<name>.png)."""
+    import math
+    from PIL import Image, ImageDraw
+    m = json.loads(src)
+    vs = [tuple(v) for v in m["vertices"]]
+    faces = [(f["v"], f.get("color", "#b0b0b0")) for f in m["faces"]]
+    if m.get("mirror_x"):
+        n = len(vs)
+        vs = vs + [(-x, y, z) for x, y, z in vs]
+        faces = faces + [([i + n for i in reversed(f)], c) for f, c in faces]
+    yaw, pitch = 0.6, 0.45
+    cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+    lo = [min(v[k] for v in vs) for k in range(3)]; hi = [max(v[k] for v in vs) for k in range(3)]
+    c = [(lo[k] + hi[k]) / 2 for k in range(3)]
+    def view(v):
+        x, y, z = v[0] - c[0], v[1] - c[1], v[2] - c[2]
+        x, z = x * cy - z * sy, x * sy + z * cy
+        y, z = y * cp - z * sp, y * sp + z * cp
+        return x, y, z
+    pv = [view(v) for v in vs]
+    ext = max(max(abs(p[0]) for p in pv), max(abs(p[1]) for p in pv)) or 1
+    scale = min(size) * 0.4 / ext
+    img = Image.new("RGB", size, (58, 62, 70)); d = ImageDraw.Draw(img)
+    light = (0.4, 0.8, 0.45)
+    def normal(f):
+        a, b, cc = [pv[i] for i in f[:3]]
+        u = [b[k] - a[k] for k in range(3)]; w = [cc[k] - a[k] for k in range(3)]
+        n = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+        l = math.sqrt(sum(x * x for x in n)) or 1
+        return [x / l for x in n]
+    for f, col in sorted(faces, key=lambda fc: sum(pv[i][2] for i in fc[0]) / len(fc[0])):
+        n = normal(f)
+        if n[2] < 0:
+            continue  # facing away
+        shade = 0.45 + 0.55 * max(0.0, sum(n[k] * light[k] for k in range(3)))
+        rgb = tuple(int(int(col[1 + 2 * k:3 + 2 * k], 16) * shade) for k in range(3))
+        d.polygon([(size[0] / 2 + pv[i][0] * scale, size[1] / 2 - pv[i][1] * scale) for i in f], fill=rgb, outline=(20, 20, 20))
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path)
+
+
 def studio_ctx(name, src, sel="1 faces selected"):
     d = json.loads(src)
     return STUDIO_CTX.format(name=name, nv=len(d["vertices"]), nf=len(d["faces"]), nc=len({f["color"] for f in d["faces"]}),

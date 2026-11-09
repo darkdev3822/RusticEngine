@@ -32,6 +32,7 @@ for model in models:
         shutil.copytree(BASE, d + "/p")
         Path(d + f"/p/assets/models").mkdir(parents=True, exist_ok=True)
         Path(d + f"/p/assets/models/{name}.rmodel").write_text(src)
+        collab.render_preview(src, d + f"/p/design/studio/{name}.png")  # the Studio saves this picture on every save
         p = subprocess.Popen([AGENT, "--project", d + "/p", "--model", model, "--mode", "learning"],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         p.stdin.write(json.dumps({"type": "user", "text": q, "context": collab.studio_ctx(name, src)}) + "\n")
@@ -55,4 +56,6 @@ for model in models:
         ok = looked and named and hands_off
         passed += ok
         print(f"{model:22s} {'OK ' if ok else '-- '} looked={looked!s:5} named={named!s:5} hands_off={hands_off!s:5} {q[:45]}", flush=True)
+        if not ok:
+            print(f"    tools={tools} reply: {' '.join(text.split())[-300:]}", flush=True)
     print(f"== {model}: studio {passed}/{len(PROBES)}", flush=True)
