@@ -15,7 +15,7 @@ struct Example {
     terms: Vec<String>,
 }
 
-fn words(s: &str) -> Vec<String> {
+pub fn words(s: &str) -> Vec<String> {
     let mut out = vec![];
     for w in s.split(|c: char| !c.is_alphanumeric() && c != '_') {
         if w.len() < 2 { continue; }

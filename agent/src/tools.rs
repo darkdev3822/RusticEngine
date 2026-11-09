@@ -34,6 +34,47 @@ fn with_fixes(mut o: Outcome, fixed: &[String]) -> Outcome {
 
 const MAX_RESULT: usize = 12_000;
 
+const RUST_ERRORS: &str = include_str!("../examples/rust_errors.json");
+
+/// The official rustc explanation for each error code in the output (at most 3, once each).
+fn error_explanations(raw: &str) -> Vec<String> {
+    let table: Value = serde_json::from_str(RUST_ERRORS).unwrap_or(json!({}));
+    let mut seen = vec![];
+    for line in raw.lines() {
+        if let Some(rest) = line.strip_prefix("error[E") {
+            let code = format!("E{}", rest.chars().take_while(|c| c.is_ascii_digit()).collect::<String>());
+            if !seen.contains(&code) && seen.len() < 3 { seen.push(code); }
+        }
+    }
+    seen.iter().filter_map(|c| table[c].as_str().map(|t| format!("{c}: {t}"))).collect()
+}
+
+/// Mistakes that come up again and again with godot-rust, and what actually fixes them.
+fn godot_rust_hints(raw: &str) -> Vec<String> {
+    const H: &[(&str, &str)] = &[
+        ("found for struct `__godot_Signals_", "`self.signals()` only has your class's own `#[signal]`s and its base class's signals. \
+          A Button's `pressed` lives on the Button: `button.signals().pressed().connect_other(&self.to_gd(), Self::on_pressed)`."),
+        ("already mutably borrowed", "Two borrows of the same object overlap: finish with `self.base()` before calling `self.base_mut()`, \
+          and don't call `bind_mut()` on yourself while inside one of your own methods."),
+        ("already borrowed", "Two borrows of the same object overlap: read values into local variables first, then call `base_mut()`/`bind_mut()`."),
+        ("cannot find type `ProcessMode`", "It's `godot::classes::node::ProcessMode` (enums live in a module named after their class, in snake_case)."),
+        ("cannot find type `MouseMode`", "It's `godot::classes::input::MouseMode`."),
+        ("cannot find type `WindowMode`", "It's `godot::classes::display_server::WindowMode`."),
+        ("casting `bool` as `f32` is invalid", "Rust won't turn a bool into a number: write `if pressed { 1.0 } else { 0.0 }`, \
+          or use `Input::singleton().get_axis(\"ui_left\", \"ui_right\")`."),
+        ("found for struct `Gd<label::Label>`", "You have your own class or module called `Label`, which hides Godot's Label. Rename yours, \
+          or write `godot::classes::Label` in full."),
+        ("is not an iterator", "Godot arrays iterate with `.iter_shared()`: `for node in array.iter_shared() { ... }`."),
+        ("expected `f32`, found `f64`", "`delta` is an f64 but Godot vectors use f32: write `delta as f32`."),
+        ("expected `f64`, found `f32`", "This Godot method takes an f64: convert with `value as f64`."),
+        ("expected `&str`, found `String`", "Pass a reference: `&my_string`."),
+        ("no method named `unwrap` found for struct `Gd<", "That method already returns `Gd<T>` (not an Option), so there's nothing to unwrap: remove `.unwrap()`."),
+        ("no method named `get_tree` found", "Call it through the base: `self.base().get_tree()`."),
+        ("no method named `get_node_as` found", "Call it through the base: `self.base().get_node_as::<Label>(\"Path\")`."),
+    ];
+    H.iter().filter(|(pat, _)| raw.contains(pat)).map(|(_, h)| h.to_string()).take(3).collect()
+}
+
 pub fn definitions() -> Vec<ToolDef> {
     vec![
         ToolDef { name: "list_files", description: "List the project's files and folders (skips build output).",
@@ -68,6 +109,9 @@ pub fn definitions() -> Vec<ToolDef> {
         ToolDef { name: "find_example", description: "Search a library of real, working godot-rust 0.5 code for how to do something. Use it before writing an API you're not sure about.",
             schema: json!({"type": "object", "properties": {
                 "query": {"type": "string", "description": "Class, method or idea, e.g. 'Timer timeout connect', 'Tween tween_property', 'get_overlapping_bodies'"}}, "required": ["query"]}) },
+        ToolDef { name: "game_design", description: "Look up game design knowledge: what players love about a game (e.g. 'Dark Souls', 'Stardew Valley') or how a design idea works and feels (e.g. 'coyote time', 'stamina', 'roguelite'). Use it to understand what the creator means, then ask them.",
+            schema: json!({"type": "object", "properties": {
+                "query": {"type": "string", "description": "A game name or a design idea"}}, "required": ["query"]}) },
         ToolDef { name: "asset_info", description: "Describe a file the creator added: an image's size and whether it looks like a sprite sheet, a 3D model's parts and animations, a sound's length, a scene's nodes. Works on folders too.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. assets/hero.png or design/concept"}}, "required": ["path"]}) },
@@ -94,6 +138,7 @@ pub fn summary(name: &str, args: &Value) -> String {
         "class_info" => format!("Looking up {}", args["class_name"].as_str().unwrap_or("?")),
         "asset_info" => format!("Inspecting {p}"),
         "find_example" => format!("Finding examples of {}", args["query"].as_str().unwrap_or("?")),
+        "game_design" => format!("Studying the design of {}", args["query"].as_str().unwrap_or("?")),
         "look_at_image" => format!("Looking at {p}"),
         "set_mode" => format!("Switching to {} mode", args["mode"].as_str().unwrap_or("?")),
         other => format!("Using {other}"),
@@ -142,6 +187,7 @@ impl Project {
     fn run_inner(&self, name: &str, args: &Value, path: &str) -> Outcome {
         match name {
             "list_files" => self.list_files(path),
+            "game_design" => ok(crate::design::search(args["query"].as_str().unwrap_or(""))),
             "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 2)),
             "asset_info" => match self.resolve(path, false) {
                 Ok(p) => match crate::assets::info(&p, path) { Ok(t) => ok(t), Err(e) => fail(e) },
@@ -310,8 +356,10 @@ impl I{base} for {class} {{
     }
 
     fn add_hints(&self, mut o: Outcome) -> Outcome {
-        let hints = self.method_hints(&o.raw);
-        if !hints.is_empty() { o.content += &format!("\nHints from the Godot API:\n- {}", hints.join("\n- ")); }
+        let mut hints = self.method_hints(&o.raw);
+        hints.extend(godot_rust_hints(&o.raw));
+        hints.extend(error_explanations(&o.raw));
+        if !hints.is_empty() { o.content += &format!("\nHints:\n- {}", hints.join("\n- ")); }
         o
     }
 

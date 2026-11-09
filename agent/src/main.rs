@@ -10,6 +10,7 @@
 //! Also usable from a terminal for testing:
 //!   rustic-agent --project DIR --engine PATH --provider ollama --model qwen2.5-coder:7b --ask "make the player jump"
 mod assets;
+mod design;
 mod examples;
 mod llm;
 mod tools;
