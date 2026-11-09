@@ -666,6 +666,137 @@ def reference(ask, query, reply):
     return t, system
 
 
+# ====================================================================== studio (3D modeler)
+
+def rmodel(verts, faces, colors, mirror=False):
+    """A Studio .rmodel file (the format the editor's 3D modeler saves)."""
+    return json.dumps({"format": "rustic-model", "version": 1, "mirror_x": mirror,
+                       "vertices": [[round(x, 4) for x in v] for v in verts],
+                       "faces": [{"v": f, "color": c} for f, c in zip(faces, colors)]}, indent=1)
+
+
+def box(w, h, d, x0=None):
+    """A box standing on the ground (y from 0 to h). With x0 set, it spans x0..w instead of -w/2..w/2."""
+    a, b = (-w / 2, w / 2) if x0 is None else (x0, w)
+    v = [(a, 0, -d / 2), (b, 0, -d / 2), (b, h, -d / 2), (a, h, -d / 2), (a, 0, d / 2), (b, 0, d / 2), (b, h, d / 2), (a, h, d / 2)]
+    f = [[4, 5, 6, 7], [1, 0, 3, 2], [5, 1, 2, 6], [0, 4, 7, 3], [7, 6, 2, 3], [0, 1, 5, 4]]
+    return v, f
+
+
+def tree_model():
+    import math
+    n = 6
+    v = [(math.cos(2 * math.pi * i / n) * 0.15, 0, -math.sin(2 * math.pi * i / n) * 0.15) for i in range(n)]
+    v += [(math.cos(2 * math.pi * i / n) * 0.15, 0.8, -math.sin(2 * math.pi * i / n) * 0.15) for i in range(n)]
+    v += [(math.cos(2 * math.pi * i / n) * 0.7, 0.8, -math.sin(2 * math.pi * i / n) * 0.7) for i in range(n)]
+    v.append((0, 2.4, 0))
+    f = [list(range(n - 1, -1, -1))] + [[i, (i + 1) % n, n + (i + 1) % n, n + i] for i in range(n)]
+    c = ["#6b4423"] * (1 + n)
+    f += [list(range(3 * n - 1, 2 * n - 1, -1))] + [[2 * n + i, 2 * n + (i + 1) % n, 3 * n] for i in range(n)]
+    c += ["#2f6b3a"] * (1 + n)
+    return rmodel(v, f, c)
+
+
+CHEST = rmodel(*box(1.0, 0.6, 0.6), ["#8b5a2b"] * 6)
+TREE = tree_model()
+_hv, _hf = box(0.35, 1.1, 0.4, x0=0.0)
+HALF_BODY = rmodel(_hv, _hf[:3] + _hf[4:], ["#3a6ea5"] * 5, mirror=True)  # no face on the mirror seam, like the Studio
+
+STUDIO_CTX = "in the Studio's 3D modeler: res://assets/models/{name}.rmodel ({nv} vertices, {nf} faces, {nc} colors{mir}), {sel}, picture from last save: design/studio/{name}.png"
+
+
+def studio_ctx(name, src, sel="1 faces selected"):
+    d = json.loads(src)
+    return STUDIO_CTX.format(name=name, nv=len(d["vertices"]), nf=len(d["faces"]), nc=len({f["color"] for f in d["faces"]}),
+                             mir=", mirrored on X" if d["mirror_x"] else "", sel=sel)
+
+
+STUDIO_QA = [
+    ("chest", CHEST, "learning", ["How do I make the lid stick out a little on all sides?", "i want the lid to overhang the box a bit, how?"],
+     "Nice, a chest is a great first model! Here's a classic trick for a lid that overhangs, three moves:\n\n"
+     "1. In **Faces (2)**, click the top face and press **E** (extrude), then type **0** and press Enter. That makes a copy of the top edge right where it is.\n"
+     "2. Press **S** (scale), type **1.1**, Enter. The copy grows 10% wider, and that ring becomes the lip that sticks out.\n"
+     "3. Press **E** again and move the mouse up (or type **0.25**, Enter) to give the lid its height.\n\n"
+     "Why it works: extrude always builds new sides between the old edge and the new one, so scaling right after extruding makes a ledge. You'll use this for roofs, tabletops and hat brims too. Want to try it and tell me how it looks?"),
+    ("chest", CHEST, "learning", ["how would I add a lock on the front?", "can I make a little lock plate on the front"],
+     "Inset is perfect for that. It makes a smaller face inside a face, so the lock gets a clean border:\n\n"
+     "1. In **Faces (2)**, click the front face (the side facing you) and press **I** (inset). Move the mouse toward the face's center until it's lock-sized, or type **0.25** and Enter.\n"
+     "2. Press **E** and pull it out just a little (type **0.05**, Enter) so the plate stands off the wood.\n"
+     "3. Pick a gold or dark metal color in the color button and press **P** to paint it.\n\n"
+     "Small, bright details like this are where the eye goes first, so one gold lock can make the whole chest feel like treasure. What color are you thinking for it?"),
+    ("tree", TREE, "learning", ["my tree looks really boring and perfect", "the tree looks too much like a computer made it"],
+     "It's a solid start: a 6-sided trunk with a cone of leaves, about 2.4 units tall. It looks \"computer-made\" because it's perfectly symmetrical, and nature never is. Let's rough it up:\n\n"
+     "1. Press **1** for Vertices and click one corner on the edge of the leaves. Press **G** and nudge it out or up a little.\n"
+     "2. Do that to 2 or 3 more corners, each by a different amount. Shift+click selects several at once.\n"
+     "3. Select the top point and move it a bit off-center, so the tree leans slightly.\n\n"
+     "Small, uneven changes read as \"natural\". Big regular ones read as \"designed\". Try it and orbit around with the middle mouse to check it from every side. Does it start to feel more alive?"),
+    ("hero", HALF_BODY, "learning", ["how do I make an arm?", "ok I have the body, how do i add arms"],
+     "You've got Mirror X on, so you only build the right arm and the left one appears by itself. Here's how:\n\n"
+     "1. In **Faces (2)**, click the outer side face of the torso (the one pointing right, along X).\n"
+     "2. Press **I** and inset it to about shoulder size (type **0.5**, Enter). That leaves a border so the arm doesn't take the whole side.\n"
+     "3. Press **E** and pull out about **0.3** for the upper arm, then **E** again for the forearm. Two pieces give you an elbow.\n"
+     "4. Move the top corners down a bit (Vertices, **G**, **Y**) if the shoulders look too square.\n\n"
+     "Extrude-move-extrude is how all limbs are built, legs too. Want to do the legs next, or tweak the arm first?"),
+    ("chest", CHEST, "learning", ["part of my model disappeared, I can see through it", "some faces look see-through from one side"],
+     "That usually means one of two things, and both are quick fixes:\n\n"
+     "- **The face is flipped** (it faces inward, so you only see it from inside). Select it in **Faces (2)** and click **Flip**.\n"
+     "- **The face is missing** (deleted by accident). Press **1** for Vertices, Shift+click the 3 or 4 corners around the hole in order, going around the edge, then press **F** to fill it. Little numbers show the order you clicked.\n\n"
+     "If it happened just now, **Ctrl+Z** undoes it too. Which one does it look like?"),
+    ("tree", TREE, "learning", ["how do i make it smooth and round?", "can I make the leaves rounder"],
+     "Low-poly models get their \"roundness\" from more sides, not smoothing. Here's how to round off the leaves:\n\n"
+     "1. In **Faces (2)**, select the leaf faces (Shift+click, or drag a box around them) and press **D** to subdivide. Each face splits into smaller ones.\n"
+     "2. Press **1** for Vertices, select the new corners around the middle of the leaves, and press **S** to push them out a little.\n\n"
+     "Keep it chunky: a few big faces is what makes low-poly charming, and too many makes it look like a lumpy ball. The Studio doesn't do smooth shading yet. For a truly smooth look, Blender (free) can do it, and the .glb imports the same way. Want to keep the faceted style, or is smooth important for your game's look?"),
+    ("chest", CHEST, "autonomous", ["how do I put this in my game?", "ok it's done, how do I use it in the game"],
+     "Every time you save, the Studio also exports **assets/models/chest.glb**, and that's the file your game uses.\n\n"
+     "- In the FileSystem panel, drag **chest.glb** into an open 3D scene.\n"
+     "- If the player should bump into it, it needs a collision shape too (a box around it is plenty).\n\n"
+     "Want me to set that up for you: the chest in your scene with a collision box?"),
+    ("chest", CHEST, "learning", ["it looks huge next to my player", "how do I make the whole thing smaller"],
+     "Right now it's 1.0 wide, 0.6 tall and 0.6 deep. 1 unit is about 1 meter, so it's actually a pretty big chest. To shrink the whole thing:\n\n"
+     "1. Press **3** for Object mode (everything at once).\n"
+     "2. Press **S**, type **0.7**, Enter. That's 70% of the current size.\n\n"
+     "Typing a number while scaling or moving gives you exact sizes. Hold **Ctrl** instead to snap to steps. How tall is your player? I can help you pick a size that feels right next to them."),
+    ("chest", CHEST, "autonomous", ["can you just make the model for me?", "just make the chest yourself please"],
+     "I can't shape models in the Studio myself. That's yours, and honestly it's one of the most rewarding parts. But I can make it fast: a chest is about five moves (extrude, scale, inset, paint), and I'll tell you each key as you go. It takes about five minutes.\n\n"
+     "If you'd rather keep building the game for now, I can put a plain gray box in its place and add it to \"Needs art\" for later. Which do you prefer?"),
+    ("tree", TREE, "learning", ["what colors should i use?", "I don't know which colors to pick"],
+     "Right now it's a brown trunk and a dark green top, a fine start. The best color choices come from the mood, so first: should your world feel bright and cheerful, calm and soft, or dark and moody?\n\n"
+     "A few rules artists use:\n"
+     "- **3 to 5 colors per model**, shared across all your models, so the world looks like one place.\n"
+     "- **Light vs. dark matters more than hue.** If the leaves and trunk are close in brightness, the tree turns into a blob from far away.\n"
+     "- **One accent color** for what should catch the eye (fruit, flowers).\n\n"
+     "Once we pick a palette, I can save it in your Concept Journal so every model uses it. What mood are you going for?"),
+]
+
+
+def studio_qa(name, src, mode, asks, reply):
+    t, system = start(files={f"assets/models/{name}.rmodel": src}, mode=mode)
+    t.user(pick(asks) + f"\n\n[Editor context: {studio_ctx(name, src)}]")
+    (res,) = t.step("", [("asset_info", {"path": f"assets/models/{name}.rmodel"})])
+    assert "Studio 3D model" in res["content"], res["content"]
+    t.say(reply)
+    return t, system
+
+
+ART_PATH_STARTS = [
+    (["I want to learn how to make 3D models", "how do I start making my own 3d art?", "I've never modeled anything, where do I begin"], "art-low-poly-prop",
+     "Love that you want to make your own! The best first model is something small your game actually needs, like a chest, a lantern or a crate. There's a 7-step Art Path for exactly that in the Studio tab, from finding references to extrude, inset, colors, and seeing it in your game.\n\n"
+     "Step 1: which object does your game need, and what should it say about your world? Old and worn, magical, cozy?"),
+    (["how do I make my own character model?", "I want to model my main character"], "art-low-poly-character",
+     "Characters are the most rewarding thing to model, and you don't need detail, just good shapes. There's a 7-step Art Path: you model one half with Mirror X, and the other half builds itself.\n\n"
+     "First, who are they? Give me three words for their personality. Round shapes feel friendly, square ones sturdy, pointy ones dangerous, so that tells us where to start."),
+]
+
+
+def art_path_start(asks, pid, reply):
+    t, system = start(mode="learning")
+    t.user(pick(asks))
+    t.step("", [("game_path", {}), ("game_path", {"path": pid})])
+    t.say(reply)
+    return t, system
+
+
 # ====================================================================== main
 
 def jobs():
@@ -706,6 +837,11 @@ def jobs():
         yield "paths", (lambda p=pid, st=step, ti=title: path_continue(p, st, ti))
     for args in REFERENCES:
         yield "reference", (lambda a=args: reference(*a))
+    for args in STUDIO_QA:
+        yield "studio", (lambda a=args: studio_qa(*a))
+    for args in ART_PATH_STARTS:
+        for _ in range(2):
+            yield "studio", (lambda a=args: art_path_start(*a))
 
 
 def main():

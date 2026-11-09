@@ -141,6 +141,40 @@ fn ogg_summary(b: &[u8]) -> Option<String> {
 }
 
 /// Describe one file the user added. `rel` is the project-relative path.
+/// A model made in the Studio's 3D modeler (.rmodel, JSON): size, shape and colors, in words a beginner can use.
+fn rmodel_summary(v: &Value, rel: &str) -> String {
+    let verts: Vec<[f64; 3]> = v["vertices"].as_array().map(|a| a.iter().filter_map(|p| {
+        let p = p.as_array()?;
+        Some([p.first()?.as_f64()?, p.get(1)?.as_f64()?, p.get(2)?.as_f64()?])
+    }).collect()).unwrap_or_default();
+    let faces = v["faces"].as_array().cloned().unwrap_or_default();
+    let mirror = v["mirror_x"].as_bool().unwrap_or(false);
+    let mut colors: Vec<(String, usize)> = vec![];
+    let (mut tris, mut quads, mut ngons) = (0, 0, 0);
+    for f in &faces {
+        match f["v"].as_array().map(|a| a.len()).unwrap_or(0) { 3 => tris += 1, 4 => quads += 1, _ => ngons += 1 }
+        let c = f["color"].as_str().unwrap_or("#b0b0b0").to_string();
+        match colors.iter_mut().find(|(k, _)| *k == c) { Some(e) => e.1 += 1, None => colors.push((c, 1)) }
+    }
+    colors.sort_by(|a, b| b.1.cmp(&a.1));
+    let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+    for p in &verts {
+        for k in 0..3 { lo[k] = lo[k].min(p[k]); hi[k] = hi[k].max(p[k]); }
+    }
+    if mirror { lo[0] = lo[0].min(-hi[0]); }
+    let size = if verts.is_empty() { "empty".to_string() } else {
+        format!("{:.2} wide (X) x {:.2} tall (Y) x {:.2} deep (Z) units (1 unit is about 1 meter)", hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])
+    };
+    let palette: Vec<String> = colors.iter().take(8).map(|(c, n)| format!("{c} on {n} faces")).collect();
+    let stem = rel.trim_end_matches(".rmodel");
+    let name = stem.rsplit('/').next().unwrap_or(stem);
+    format!("Studio 3D model (made in RusticEngine's Studio tab). {} vertices, {} faces ({tris} triangles, {quads} quads, {ngons} larger), {}.\n\
+             Size: {size}.\nColors: {}.\n\
+             The game uses {stem}.glb (exported on every save). A picture from the last save is at design/studio/{name}.png (use look_at_image).",
+        verts.len(), faces.len(), if mirror { "mirrored on X (one half is modeled, the other copies it)" } else { "not mirrored" },
+        if palette.is_empty() { "none".into() } else { palette.join(", ") })
+}
+
 pub fn info(full: &Path, rel: &str) -> Result<String, String> {
     if full.is_dir() {
         let mut items: Vec<String> = fs::read_dir(full).map_err(|e| e.to_string())?
@@ -165,6 +199,7 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
         }
         "glb" => glb_json(&b).map(|v| format!("3D model (glTF binary).\n{}", gltf_summary(&v))).unwrap_or("3D model (couldn't read it).".into()),
         "gltf" => serde_json::from_slice::<Value>(&b).map(|v| format!("3D model (glTF).\n{}", gltf_summary(&v))).unwrap_or("glTF file (couldn't parse it).".into()),
+        "rmodel" => serde_json::from_slice::<Value>(&b).map(|v| rmodel_summary(&v, rel)).unwrap_or("Studio model (couldn't parse it).".into()),
         "fbx" | "obj" | "blend" | "dae" => format!("3D model ({e}). Godot imports it as a scene (.blend needs Blender installed). \
                                                     If it gives trouble, exporting it as .glb from the modelling program is the most reliable."),
         "wav" => wav_summary(&b).unwrap_or("WAV sound.".into()) + "\nPlay it with an AudioStreamPlayer (or AudioStreamPlayer2D for sound in the world).",
@@ -211,6 +246,9 @@ pub fn design_context(root: &Path) -> String {
     }
     if let Ok(t) = fs::read_to_string(root.join("design/path.md")) {
         out += &format!("\n{}\n", t.replace("# Game Path", "## Their Game Path (open the current step with game_path)"));
+    }
+    if let Ok(t) = fs::read_to_string(root.join("design/art_path.md")) {
+        out += &format!("\n{}\n", t.replace("# Art Path", "## Their Art Path (open the current step with game_path)"));
     }
     let entries = journal_entries(root);
     if !entries.is_empty() {

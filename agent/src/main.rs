@@ -121,10 +121,21 @@ fn claims_journal_save(text: &str) -> bool {
 /// The reply ends on a promise to look something up ("Let me check...") instead of doing it.
 fn promises_lookup(text: &str) -> bool {
     let t = text.trim_end().to_lowercase().replace('\u{2019}', "'");
-    let tail = t.rsplit(['\n']).next().unwrap_or("");
-    (tail.starts_with("let me ") || tail.starts_with("i'll ") || tail.starts_with("i will ") || tail.starts_with("one moment"))
-        && (tail.ends_with(':') || tail.ends_with("...") || tail.ends_with('.') || tail.ends_with('\u{2026}'))
-        && !tail.contains('?') && !tail.starts_with("let me know")
+    let line = t.rsplit('\n').next().unwrap_or("").trim();
+    if line.contains('?') || !(line.ends_with(':') || line.ends_with('.') || line.ends_with('\u{2026}')) {
+        return false;
+    }
+    // The last sentence of the last line: "First, I'll look at the file." / "Let me check."
+    let body = line.trim_end_matches(['.', ':', '\u{2026}']);
+    let last = body.rsplit(". ").next().unwrap_or(body).trim();
+    let last = ["first, ", "now ", "next, ", "ok, ", "okay, ", "sure, ", "great, "].iter()
+        .fold(last, |s, p| s.strip_prefix(p).unwrap_or(s));
+    if last.starts_with("one moment") {
+        return true;
+    }
+    let rest = ["let me ", "i'll ", "i will "].iter().find_map(|p| last.strip_prefix(p));
+    const LOOKUP: [&str; 11] = ["look", "check", "read", "open", "search", "find", "see ", "take a look", "pull up", "find out", "inspect"];
+    rest.is_some_and(|r| LOOKUP.iter().any(|v| r.starts_with(v) || r.starts_with(&format!("quickly {v}")) || r.starts_with(&format!("first {v}"))))
 }
 
 struct Session {
@@ -392,6 +403,9 @@ mod guard_tests {
         assert!(promises_lookup("Great idea!\nI'll check the Game Paths..."));
         assert!(!promises_lookup("Let me know which one you like?"));
         assert!(!promises_lookup("Let me know what you think."));
+        assert!(promises_lookup("I'll change that.\n\nFirst, I'll look at the model's file to find the lid's face."));
+        assert!(promises_lookup("The top is flat. Let me check the picture."));
+        assert!(!promises_lookup("Press E to extrude. I'll be here if you get stuck."));
         assert!(!promises_lookup("Here's what I found. Want to start?"));
     }
 }
