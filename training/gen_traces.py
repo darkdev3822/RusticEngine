@@ -11,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-AGENT = ROOT / "engine/bin/rustic-agent"
+AGENT = Path(os.environ.get("RUSTIC_AGENT", ROOT / "engine/bin/rustic-agent"))
 ENGINE = ROOT / "engine/bin/godot.linuxbsd.editor.x86_64"
 WORK = ROOT / "sandbox/gen"
 BASE = WORK / "base"

@@ -561,6 +561,111 @@ def needs_art(requires):
     return t, system
 
 
+# ====================================================================== journal
+
+JOURNAL = [
+    ("Boss ideas", "boss-ideas.md",
+     "# Boss ideas\n\n## The Hollow Mother\nA giant moth in the Hollow. Her wings blow out your lantern, so the fight is about relighting it from fireflies she scatters.\nPhase 2: she flies above the trees and you only see her shadow.\n\n## The Lamplighter\nAn old man who wants your lantern. Talks to you during the fight. Should feel sad, not scary.\n",
+     ["let's work on my first boss", "can we start on the moth boss from my journal?"],
+     "moth boss",
+     "Your journal has the Hollow Mother: a giant moth whose wings blow out your lantern, so the fight is about relighting it from the fireflies she scatters, and in phase 2 she flies above the trees and you only see her shadow. Great idea, it turns your lantern into the core of the fight!\n\nBefore we build: when your lantern goes out, what should happen? Is the screen almost dark until you grab a firefly, or does the player take damage over time while it's out?"),
+    ("World outline", "world-outline.md",
+     "# World outline\n\nThree islands connected by rope bridges.\n- Saltrock: fishing village, start of the game\n- The Spire: a wizard tower that's half underwater\n- Ember Isle: a volcano, final area\nBoats unlock fast travel after you fix the harbor.\n",
+     ["where should we start building my world?", "let's build the first area"],
+     "islands world",
+     "From your world outline: three islands joined by rope bridges, starting in Saltrock, the fishing village, then The Spire (a half-sunken wizard tower) and Ember Isle (the volcano at the end).\n\nSaltrock makes sense as the first area since it's where the game starts. What should a player do in their first minute there: talk to someone, explore the docks, or get pulled straight into trouble?"),
+]
+
+
+def journal_ref(title, fname, text, asks, query, reply):
+    t, system = start(files={f"design/journal/{fname}": text})
+    t.user(pick(asks))
+    (res,) = t.step("Let me check your journal first.", [("journal", {"action": "search", "query": query})])
+    assert "Nothing" not in res["content"], res["content"]
+    t.step("", [("read_file", {"path": f"design/journal/{fname}"})])
+    t.say(reply)
+    return t, system
+
+
+SAVE_IDEAS = [
+    ("oh I just had an idea: what if the fireflies are actually the souls of other lost kids, and you find out at the end",
+     "Ooh, that's a powerful twist. It would make every firefly you collect feel different on a second playthrough. Want me to save it in your Concept Journal so we don't lose it?",
+     "Story twist: fireflies are lost kids",
+     "What if the fireflies are actually the souls of other lost kids? The player finds out at the end, so every firefly collected means something different on a second playthrough."),
+    ("random thought: enemies should get scared of you once you're strong enough instead of always attacking",
+     "I love that. It makes getting stronger something you SEE in the world, not just in numbers. Should I put it in your journal?",
+     "Enemies fear a strong player",
+     "Once the player is strong enough, weaker enemies get scared and run away instead of attacking. Getting stronger shows in the world, not just in numbers."),
+    ("what if the shop moves to a different island every day",
+     "That's a fun little routine to plan around: players would learn the schedule. Want me to save that idea in your journal?",
+     "Traveling shop",
+     "The shop moves to a different island every day. Players learn its schedule and plan their trips around it."),
+]
+
+
+def journal_save(said, offer, title, text):
+    t, system = start()
+    t.user(said)
+    t.say(offer)
+    t.user(pick(["yes!", "yeah save it", "sure"]))
+    t.step("", [("journal", {"action": "add", "title": title, "text": text})])
+    t.say(f"Saved as \"{title}\" in your Concept Journal. It'll be there whenever we need it. Want to keep brainstorming, or build something?")
+    return t, system
+
+
+# ====================================================================== game paths
+
+PATH_STARTS = [
+    (["I want to make something like Skyrim but I have no idea where to start", "how would I even make an elder scrolls type game?"], "open-world-rpg",
+     "Open-world RPGs are huge, so the trick is building the systems small and letting them combine. We start with one town, a dungeon and a few characters, and make them feel alive. There's a 10-step path for exactly this, from walking around to quests, crime and saving the world.\n\nStep 1 is the most important one: what makes YOUR world worth wandering? Is it a strange place, a strong situation (like Fallout's world after the bombs), or a big fantasy you get to live out?"),
+    (["I want to make a souls-like", "how do i make a game like dark souls"], "souls-like",
+     "Souls-likes are about hard but fair challenges and a world you learn by heart. There's an 8-step path for it, from a weighty dodge roll to stamina, enemies that telegraph their attacks, bonfires and your first boss.\n\nFirst question, because \"Souls-like\" means different things to different people: which part do you want most? The tough-but-fair combat, the interconnected world, the cryptic story, or the bosses?"),
+    (["teach me how to make a platformer", "i want to make a platformer like celeste"], "platformer",
+     "Platformers live and die by how the jump feels, so that's where we start. There's an 8-step path, from running and jumping to forgiving controls, your special move and a level that teaches without words.\n\nFirst, the feel: precise and tough like Celeste, floaty and relaxed like Kirby, or all about momentum like Sonic? And what's your character's special move?"),
+    (["I want to make a cozy farming game", "how do i start a stardew type game?"], "cozy-farming",
+     "Cozy games are about comfort and routine, and they're a lovely thing to make. There's an 8-step path, from walking your farm to growing crops, neighbors who remember you, and seasons.\n\nLet's start with the heart of it: where is your little world, and why does the player come there? Who's one neighbor they'll meet?"),
+]
+
+
+def path_start(asks, pid, reply):
+    t, system = start()
+    t.user(pick(asks))
+    t.step("", [("game_path", {}), ("game_path", {"path": pid})])
+    t.say(reply)
+    return t, system
+
+
+def path_continue(pid, step, title):
+    t, system = start(files={"design/path.md": f"# Game Path\nPath: {pid}\nCurrent step: {step - 1}\n"})
+    t.user(pick(["what's next?", "ok that works! what do we do next", "next step please"]))
+    (res,) = t.step("", [("game_path", {"path": pid, "step": step})])
+    q = res["content"].split("**Design question:**")[1].split("\n")[0].strip()
+    t.say(f"Next up, step {step}: {title}. {q}")
+    return t, system
+
+
+# ====================================================================== references
+
+REFERENCES = [
+    ("I want the combat to feel like Dark Souls", "Dark Souls",
+     "Dark Souls is a great reference! Its combat is loved for a few different things: deliberate, committed attacks, a stamina bar that punishes mashing, enemies that telegraph every swing so deaths feel fair, and a dodge roll you have to time. Which of those matters most for your game? It's fine if the answer is \"all of them\", but knowing the top one tells me where to start."),
+    ("make the movement feel like Celeste", "coyote time",
+     "Celeste's movement feels so good because of a few invisible rules: you can still jump a moment after leaving a ledge, a jump pressed just before landing still counts, holding jump makes you go higher, and there's a little hang time at the top. Do you want that tight, precise feel for your whole game, or something a bit floatier?"),
+    ("I want my world to feel alive like Skyrim", "NPC daily schedules",
+     "A big part of that feeling is that people in Skyrim go about their day without you: the blacksmith works the forge, everyone heads to the inn at night. Simple daily routines, overlapping, make a town feel lived in. Is that the part you mean, or more the freedom to go anywhere and do anything?"),
+    ("something cozy like stardew valley", "Stardew Valley",
+     "Stardew's coziness comes from a gentle daily rhythm (farm, chat, sleep), no harsh failure, neighbors who remember you, and a place that slowly becomes yours. Which of those do you want to start with?"),
+]
+
+
+def reference(ask, query, reply):
+    t, system = start()
+    t.user(ask)
+    t.step("", [("game_design", {"query": query})])
+    t.say(reply)
+    return t, system
+
+
 # ====================================================================== main
 
 def jobs():
@@ -588,6 +693,19 @@ def jobs():
         yield "draw", (lambda name=name: draw(name))
     for req in ([], ["enemy"], ["topdown_body", "coins"]):
         yield "needs_art", (lambda r=req: needs_art(r))
+    for args in JOURNAL:
+        for _ in range(2):
+            yield "journal", (lambda a=args: journal_ref(*a))
+    for args in SAVE_IDEAS:
+        yield "journal", (lambda a=args: journal_save(*a))
+    for asks, pid, reply in PATH_STARTS:
+        yield "paths", (lambda a=asks, p=pid, r=reply: path_start(a, p, r))
+    for pid, step, title in (("open-world-rpg", 3, "characters with daily routines"), ("open-world-rpg", 8, "consequences: crime and reputation"),
+                             ("souls-like", 3, "stamina"), ("platformer", 3, "making the jump forgiving"), ("survival", 5, "crafting"),
+                             ("roguelike", 2, "a generated level")):
+        yield "paths", (lambda p=pid, st=step, ti=title: path_continue(p, st, ti))
+    for args in REFERENCES:
+        yield "reference", (lambda a=args: reference(*a))
 
 
 def main():
