@@ -81,7 +81,8 @@ def run_task(model: str, task: str, idx: int) -> dict:
     r = tool(project, "run_game", {"seconds": 2}) if built else {"ok": False, "content": ""}
     ran = r["ok"]
     problem = "" if ran else (r["content"] if built else b["content"])[:1500]
-    return {"model": model, "task": task, "built": built, "ran": ran, "looked": looked, "tools": len(calls),
+    guards = [e["name"] for e in events if e["type"] == "guard"]
+    return {"guards": guards, "model": model, "task": task, "built": built, "ran": ran, "looked": looked, "tools": len(calls),
             "changed": first_write is not None, "secs": round(secs), "errors": errors[:1], "reply": text[-400:], "problem": problem}
 
 

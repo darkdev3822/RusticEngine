@@ -222,6 +222,7 @@ impl Session {
                 // Small models sometimes describe a change they never made. Catch that once.
                 let last = match self.history.last() { Some(Msg::Assistant { text, .. }) => text.clone(), _ => String::new() };
                 if !journal_saved && !claim_checked && claims_journal_save(&last) {
+                    emit(json!({"type": "guard", "name": "journal_claim"}));
                     claim_checked = true;
                     self.history.push(Msg::User(
                         "[Automatic check] Your reply says you saved this to the Concept Journal, but nothing was saved. \
@@ -230,6 +231,7 @@ impl Session {
                     continue;
                 }
                 if !promise_checked && promises_lookup(&last) {
+                    emit(json!({"type": "guard", "name": "lookup_promise"}));
                     promise_checked = true;
                     self.history.push(Msg::User(
                         "[Automatic check] You said you'd look something up but didn't call a tool. Call it now \
@@ -237,6 +239,7 @@ impl Session {
                     continue;
                 }
                 if !changed_any && !claim_checked && claims_change(&last) {
+                    emit(json!({"type": "guard", "name": "change_claim"}));
                     claim_checked = true;
                     emit(json!({"type": "text", "delta": "\n\nWait - I haven't actually saved that change yet. Doing it now...\n\n"}));
                     self.history.push(Msg::User(
