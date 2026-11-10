@@ -116,6 +116,7 @@ fn claims_change(text: &str) -> bool {
 /// "I've saved it to your journal" without a journal call.
 const STUDIO_MODEL: &str = include_str!("../prompt/studio_model.md");
 const STUDIO_SFX: &str = include_str!("../prompt/studio_sfx.md");
+const STUDIO_PIXEL: &str = include_str!("../prompt/studio_pixel.md");
 
 /// The exact Studio tools for what's open, so Ember names real keys instead of inventing menus.
 fn studio_card(context: &str) -> Option<&'static str> {
@@ -123,6 +124,8 @@ fn studio_card(context: &str) -> Option<&'static str> {
         Some(STUDIO_MODEL.trim())
     } else if context.contains("in the Studio's Sound Effects maker") {
         Some(STUDIO_SFX.trim())
+    } else if context.contains("in the Studio's Pixel Art painter") {
+        Some(STUDIO_PIXEL.trim())
     } else {
         None
     }
@@ -142,7 +145,7 @@ fn clean_studio_reply(text: &str) -> String {
         "change it for you", "tweak it for you", "let me look it up", "i'll make it", "let me change", "let me make",
         "i've made", "i made it", "i've changed", "i changed", "i've added", "i added", "i've set", "build successful", "let me build",
         "playtest", "(f5)", "look_at_image", "asset_info", "it looks great", "i'll make those changes", "i'll start by", "i'll change", "i'll add", "i'll set", "i'll make sure"];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = std::collections::HashMap::<String, usize>::new();
     let mut lines = vec![];
     for line in t.lines() {
         let mut kept = vec![];
@@ -156,7 +159,9 @@ fn clean_studio_reply(text: &str) -> String {
             let acting = ["i'll ", "i will ", "let me ", "now i'll "].iter().any(|p| low.trim_start_matches(|c: char| !c.is_alphanumeric()).starts_with(p))
                 && !["show", "explain", "walk", "help", "tell", "break it down", "go through"].iter().any(|w| low.contains(w));
             let bad = acting || DROP.iter().any(|d| low.contains(d));
-            if !sentence.trim().is_empty() && !bad && (low.len() < 25 || seen.insert(low.clone())) {
+            // Drop repeats (the model can loop on a phrase); short ones like "Done." may appear twice.
+            let n = { let c = seen.entry(low.clone()).or_insert(0); *c += 1; *c };
+            if !sentence.trim().is_empty() && !bad && (n == 1 || (low.len() < 12 && n <= 2)) {
                 kept.push(sentence.trim());
             }
             if next.is_empty() { break; }
@@ -174,7 +179,7 @@ fn clean_studio_reply(text: &str) -> String {
 fn studio_file(context: &str) -> Option<String> {
     let i = context.find("res://")?;
     let path: String = context[i + 6..].chars().take_while(|c| !c.is_whitespace() && *c != ':' && *c != ',' && *c != ')').collect();
-    (path.ends_with(".rmodel") || path.ends_with(".rsfx")).then_some(path)
+    (path.ends_with(".rmodel") || path.ends_with(".rsfx") || path.ends_with(".rpix")).then_some(path)
 }
 
 fn claims_journal_save(text: &str) -> bool {
@@ -247,7 +252,7 @@ impl Session {
                 }
             }
             content += &format!("\n\n[Studio reference: {card}]");
-            let tool = if context.contains("Sound Effects maker") { "sound" } else { "model" };
+            let tool = if context.contains("Sound Effects maker") { "sound" } else if context.contains("Pixel Art painter") { "pixel" } else { "model" };
             let how = studio::lookup(text, tool);
             studio_how = how.clone();
             if !how.is_empty() {
@@ -389,6 +394,10 @@ impl Session {
         }
         if in_studio {
             let mut clean = clean_studio_reply(&studio_text);
+            if !studio_how.is_empty() && clean.len() >= 120 && !studio::grounded(&clean, &studio_how[0]) {
+                // A fluent answer that never names the real tool for this: add the verified steps after it.
+                clean = format!("{clean}\n\nIn the Studio, exactly:\n\n{}", studio_how[0].lines().skip(1).collect::<Vec<_>>().join("\n"));
+            }
             if clean.len() < 120 && !studio_how.is_empty() {
                 // Nothing useful survived (the model tried to do it itself): give the verified steps directly.
                 clean = format!("{}{}Here's how you can do it:\n\n{}", clean, if clean.is_empty() { "" } else { "\n\n" },
@@ -499,6 +508,8 @@ mod guard_tests {
         assert_eq!(c, "1. Press **1** for Vertices. Select the top corners.\n2. Press **M**.\n\nWhy: merging makes a point.");
         let dup = "The top is flat. Let me look again.\nThe top is flat, so merge it. The top is flat, so merge it.";
         assert_eq!(super::clean_studio_reply(dup), "The top is flat.\nThe top is flat, so merge it.");
+        let looped = "That's a classic look! One second. That's a classic look! One second. That's a classic look! One second. Use Ellipse.";
+        assert_eq!(super::clean_studio_reply(looped), "That's a classic look! One second. One second. Use Ellipse.");
     }
 
     #[test]
@@ -507,6 +518,7 @@ mod guard_tests {
         assert_eq!(studio_file("in the Studio's 3D modeler: res://assets/models/house.rmodel (8 vertices, 6 faces)").as_deref(), Some("assets/models/house.rmodel"));
         assert_eq!(studio_file("in the Studio's Sound Effects maker: res://assets/sounds/boom.rsfx (unsaved changes): noise").as_deref(), Some("assets/sounds/boom.rsfx"));
         assert_eq!(studio_file("in the Studio's Sound Effects maker: unsaved sound: noise wave"), None);
+        assert_eq!(studio_file("in the Studio's Pixel Art painter: res://assets/art/hero.rpix (unsaved changes): 16x16 px").as_deref(), Some("assets/art/hero.rpix"));
     }
 
     use super::*;

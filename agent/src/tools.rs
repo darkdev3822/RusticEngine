@@ -138,7 +138,7 @@ pub fn definitions() -> Vec<ToolDef> {
 /// Art the creator makes themselves in the Studio. Ember guides; it never writes these.
 pub fn is_studio_art(path: &str) -> bool {
     let p = path.trim_start_matches("res://").to_lowercase();
-    p.ends_with(".rmodel") || p.ends_with(".rsfx") || p.starts_with("design/studio/")
+    p.ends_with(".rmodel") || p.ends_with(".rsfx") || p.ends_with(".rpix") || p.starts_with("design/studio/")
 }
 
 const STUDIO_HANDS_OFF: &str = "Studio files are the creator's own art: they make them in the Studio tab, you don't write them. \
@@ -902,6 +902,7 @@ mod studio_tests {
         assert!(super::is_studio_art("assets/models/house.rmodel"));
         assert!(super::is_studio_art("res://assets/sounds/boom.rsfx"));
         assert!(super::is_studio_art("design/studio/house.png"));
+        assert!(super::is_studio_art("assets/art/hero.rpix"));
         assert!(!super::is_studio_art("rust/src/player.rs"));
         assert!(!super::is_studio_art("design/vision.md"));
     }

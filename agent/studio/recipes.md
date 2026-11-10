@@ -311,3 +311,119 @@ tool: sound
 keys: game use wav save export play hook up player
 1. Save writes the .rsfx and a .wav next to it.
 2. Play the .wav with an AudioStreamPlayer (2D/3D for sounds from a place in the world). Ember can hook it up in code.
+
+## Start a new sprite or tile
+tool: pixel
+keys: new start begin size canvas blank empty 16x16 32x32 character item tile icon
+1. New, then pick a size: 16x16 for characters, items and tiles (the classic size), 8x8 for tiny icons, 16x24 for a taller character, 32x32 when you need more detail.
+2. Keep one pixel size for the whole game so everything looks like it belongs together.
+
+## Make the canvas bigger or smaller
+tool: pixel
+keys: resize bigger smaller canvas size room space expand grow shrink
+1. Canvas menu, then a size (8x8 up to 128x128). Your art stays in the middle.
+2. Undo (Ctrl+Z) if it cut something off.
+
+## Draw and erase
+tool: pixel
+keys: draw paint pencil erase eraser delete remove pixel pixels mistake undo
+1. Pencil (B): left mouse draws with your left color, right mouse with your right color. The right color starts transparent, so right-drag erases.
+2. Eraser (E) makes pixels transparent with either button.
+3. Undo is Ctrl+Z, Redo is Ctrl+Shift+Z.
+
+## Pick and change colors
+tool: pixel
+keys: color colour change pick choose swatch palette edit hue recolor picker eyedropper
+1. Left-click a swatch for the left-mouse color, right-click one for the right-mouse color. The checkered slot is transparent.
+2. Click the color box under the swatches to change the selected color: every pixel that uses it changes too.
+3. Pick Color (I), or Alt-click with any tool, grabs a color from the canvas.
+4. + Color adds a copy of the selected color to change.
+
+## Try a different palette or recolor the whole sprite
+tool: pixel
+keys: palette preset recolor swap mood dark bright forest dungeon gameboy grayscale enemy variant variation version team blue red green yellow purple pink orange
+1. Choose a palette in the list under Palette (Starter 16, Forest, Dungeon, Grayscale, Four Greens). The sprite keeps its pixels and takes the new colors.
+2. For an enemy variant, Save, then change a few colors with the color box and Save under a new name.
+
+## Fill an area
+tool: pixel
+keys: fill bucket flood area inside color in paint whole region
+1. Fill (G), then click inside an area: it fills the connected pixels of that one color (not through diagonal gaps).
+2. If it leaks out, the outline has a gap: Undo, close the gap with Pencil, fill again.
+3. Shift-click with Fill replaces that color everywhere in every frame.
+
+## Straight lines, boxes and circles
+tool: pixel
+keys: line straight rectangle box square circle ellipse oval round shape filled head body ball eye eyes
+1. Line (L), Rectangle (R) or Ellipse (O): drag from one corner to the other.
+2. Hold Shift while dragging for a filled rectangle or ellipse.
+3. Small circles look best with odd sizes (5, 7, 9 pixels across) because they have a center pixel.
+
+## Clean lines and jaggies
+tool: pixel
+keys: jaggies jagged messy lines clean smooth stairs steps edges rough
+1. Clean pixel lines go in equal steps: 1:1 (diagonal), 2:1, 3:1. Uneven steps (2, then 1, then 3) look jagged.
+2. Zoom in (scroll wheel) with Grid on and fix steps with Pencil; right-drag erases the extra pixels.
+3. Remove lone pixels that stick out of a line ("orphan" pixels).
+
+## Symmetry with Mirror
+tool: pixel
+keys: mirror symmetry symmetric both sides half same left right
+1. Turn on Mirror (M): everything you draw is copied to the other half, around the line in the middle.
+2. When the base is done, turn Mirror off and add small differences so it doesn't look stiff.
+
+## Shading and volume
+tool: pixel
+keys: shading shade shadow highlight light volume flat 3d depth lighting
+1. Pick one light direction (top-left is the convention).
+2. For each material use 2-3 colors: base, a darker shadow on the side away from the light, a lighter highlight facing it.
+3. Shift the hue: shadows a bit bluer or purpler, highlights a bit yellower. Change slots with the color box or add some with + Color.
+4. Avoid darkening every edge evenly ("pillow shading"); it looks flat.
+
+## Outline
+tool: pixel
+keys: outline border edge pop readable background stand out contrast
+1. A dark outline keeps small sprites readable on busy backgrounds: trace the edge with Pencil or Line in your darkest color.
+2. For a softer look, outline each part with a darker shade of its own color instead (selective outline).
+
+## Make it readable (silhouette)
+tool: pixel
+keys: readable silhouette shape recognize tell unclear blob confusing small
+1. Check the Preview at actual size: if it's hard to tell what it is, fix the shape before the details.
+2. Exaggerate what identifies it: a bigger head, a hat, a weapon sticking out, a clear pose.
+3. Use fewer colors with stronger contrast between neighbors.
+
+## Flip or face the other way
+tool: pixel
+keys: flip mirror face facing direction turn left right upside down reverse
+1. Canvas menu > Flip Left/Right flips the current frame (Flip Upside Down for vertical).
+2. In the game you can also flip a Sprite2D with its Flip H property instead of drawing both directions.
+
+## Animation frames
+tool: pixel
+keys: animate animation frames frame walk idle bounce move cycle onion play fps speed spin spinning flicker blink sparkle wave flap run
+1. Copy (under Frames) duplicates the frame; change only what moves (body 1 pixel down, legs swapped).
+2. Turn on Onion Skin to see the previous frame faintly while you draw.
+3. Press Play to watch it; set fps (6-12 is typical for pixel art). Reorder with < and >, remove with Delete.
+4. 2-4 frames are enough for an idle bounce or a simple walk.
+
+## Seamless tiles
+tool: pixel
+keys: tile tiles seamless repeat repeating floor wall ground grass seam tileset pattern
+1. Turn on Tile View to see copies around the canvas.
+2. Canvas menu > Shift by Half moves the edges into the middle: paint over any seam you see, then Shift by Half again.
+3. Avoid strong single details that make the repeat obvious.
+
+## Use the sprite in the game
+tool: pixel
+keys: game use png save export scene sprite2d hframes animatedsprite tileset blurry blur sharp nearest filter
+1. Save writes the .rpix and a .png next to it, with all frames side by side.
+2. In a 2D scene use a Sprite2D with that .png; for animation set Hframes to the frame count and change Frame (Ember can write the code).
+3. If it looks blurry, set Project Settings > Rendering > Textures > Canvas Textures > Default Texture Filter to Nearest.
+
+## Missing tools (layers, selection, brushes, dithering)
+tool: pixel
+keys: layer layers select selection copy paste move brush size dither dithering gradient text rotate
+1. The Pixel Art painter has no layers, selection, brush sizes or rotation yet.
+2. Workarounds: Shift by Half moves everything (wrapping), Flip mirrors, Copy duplicates a frame. Dithering is a checker pattern of two colors, drawn with Pencil.
+3. For bigger jobs, free tools like Pixelorama or LibreSprite work, and their .png files import straight into the project.

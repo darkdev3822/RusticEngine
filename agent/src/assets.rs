@@ -199,6 +199,62 @@ fn rsfx_summary(v: &Value, rel: &str) -> String {
         parts.join(", "))
 }
 
+/// A sprite made in the Studio's Pixel Art painter (.rpix, JSON): size, palette use, symmetry and
+/// animation, in pixel-art words, plus the first frame itself when it's small enough to read.
+fn rpix_summary(v: &Value, rel: &str) -> String {
+    const CH: &str = ".123456789abcdefghijklmnopqrstuv";
+    let (w, h) = (v["width"].as_u64().unwrap_or(16) as usize, v["height"].as_u64().unwrap_or(16) as usize);
+    let fps = v["fps"].as_u64().unwrap_or(8);
+    let palette: Vec<String> = v["palette"].as_array().map(|a| a.iter().map(|c| c.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
+    let frames: Vec<Vec<String>> = v["frames"].as_array().map(|a| a.iter().map(|f| {
+        let rows: Vec<String> = f.as_array().map(|r| r.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
+        (0..h).map(|y| { let r = rows.get(y).cloned().unwrap_or_default(); (0..w).map(|x| r.chars().nth(x).unwrap_or('.')).collect() }).collect()
+    }).collect()).unwrap_or_default();
+    if frames.is_empty() { return "Studio sprite with no frames.".into(); }
+    let mut count = vec![0usize; CH.len()];
+    for f in &frames { for r in f { for c in r.chars() { if let Some(i) = CH.find(c) { count[i] += 1; } } } }
+    let total = w * h * frames.len();
+    let drawn: usize = count[1..].iter().sum();
+    let mut used: Vec<(usize, usize)> = (1..count.len()).filter(|&i| count[i] > 0).map(|i| (i, count[i])).collect();
+    used.sort_by(|a, b| b.1.cmp(&a.1));
+    let colors: Vec<String> = used.iter().take(10).map(|(i, n)| format!("slot {} {} ({}%)", CH.as_bytes()[*i] as char,
+        palette.get(*i).map(String::as_str).unwrap_or("?"), n * 100 / drawn.max(1))).collect();
+    // Symmetry and position of frame 1.
+    let f0 = &frames[0];
+    let (mut same, mut pairs) = (0, 0);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for (y, r) in f0.iter().enumerate() {
+        let b: Vec<char> = r.chars().collect();
+        for x in 0..w {
+            if b[x] != '.' { x0 = x0.min(x); y0 = y0.min(y); x1 = x1.max(x); y1 = y1.max(y); }
+            if x < w / 2 && (b[x] != '.' || b[w - 1 - x] != '.') { pairs += 1; if b[x] == b[w - 1 - x] { same += 1; } }
+        }
+    }
+    let mut parts = vec![format!("{w}x{h} pixels, {} frame{} at {fps} fps", frames.len(), if frames.len() == 1 { "" } else { "s" }),
+        format!("{} of {} palette colors used, {}% of pixels drawn", used.len(), palette.len().saturating_sub(1), drawn * 100 / total.max(1))];
+    if x0 > x1 { parts.push("frame 1 is empty".into()); } else {
+        parts.push(format!("frame 1 art spans x {x0}-{x1}, y {y0}-{y1}"));
+        parts.push(format!("left/right symmetry {}%", same * 100 / pairs.max(1)));
+    }
+    if frames.len() > 1 {
+        let diffs: Vec<String> = (0..frames.len()).map(|i| {
+            let (a, b) = (&frames[i], &frames[(i + 1) % frames.len()]);
+            let n: usize = a.iter().zip(b).map(|(r, s)| r.chars().zip(s.chars()).filter(|(p, q)| p != q).count()).sum();
+            format!("{}->{}: {n}", i + 1, (i + 1) % frames.len() + 1)
+        }).collect();
+        parts.push(format!("pixels changing between frames {}", diffs.join(", ")));
+    }
+    let stem = rel.trim_end_matches(".rpix");
+    let name = stem.rsplit('/').next().unwrap_or(stem);
+    let mut out = format!("Studio pixel art sprite (made in RusticEngine's Studio tab, Pixel Art). {}.\nColors: {}.\n\
+        The game uses {stem}.png (exported on every save, frames side by side). A bigger picture from the last save is at design/studio/{name}.png (use look_at_image).",
+        parts.join(", "), if colors.is_empty() { "none".into() } else { colors.join(", ") });
+    if w <= 32 && h <= 32 && x0 <= x1 {
+        out += &format!("\nFrame 1, one character per pixel ('.' = transparent, others = palette slot):\n{}", f0.join("\n"));
+    }
+    out
+}
+
 pub fn info(full: &Path, rel: &str) -> Result<String, String> {
     if full.is_dir() {
         let mut items: Vec<String> = fs::read_dir(full).map_err(|e| e.to_string())?
@@ -225,6 +281,7 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
         "gltf" => serde_json::from_slice::<Value>(&b).map(|v| format!("3D model (glTF).\n{}", gltf_summary(&v))).unwrap_or("glTF file (couldn't parse it).".into()),
         "rmodel" => serde_json::from_slice::<Value>(&b).map(|v| rmodel_summary(&v, rel)).unwrap_or("Studio model (couldn't parse it).".into()),
         "rsfx" => serde_json::from_slice::<Value>(&b).map(|v| rsfx_summary(&v, rel)).unwrap_or("Studio sound (couldn't parse it).".into()),
+        "rpix" => serde_json::from_slice::<Value>(&b).map(|v| rpix_summary(&v, rel)).unwrap_or("Studio sprite (couldn't parse it).".into()),
         "fbx" | "obj" | "blend" | "dae" => format!("3D model ({e}). Godot imports it as a scene (.blend needs Blender installed). \
                                                     If it gives trouble, exporting it as .glb from the modelling program is the most reliable."),
         "wav" => wav_summary(&b).unwrap_or("WAV sound.".into()) + "\nPlay it with an AudioStreamPlayer (or AudioStreamPlayer2D for sound in the world).",

@@ -27,7 +27,7 @@ fn recipes() -> Vec<Recipe> {
             else if let Some(k) = l.strip_prefix("keys:") { keys = k.to_string(); }
             else if !l.trim().is_empty() { body.push(l.trim_end()); }
         }
-        let tool: &'static str = if tool == "sound" { "sound" } else { "model" };
+        let tool: &'static str = match tool { "sound" => "sound", "pixel" => "pixel", _ => "model" };
         out.push(Recipe { title, tool, words: words(&format!("{title} {keys}")), body: body.join("\n") });
     }
     out
@@ -49,6 +49,25 @@ pub fn lookup(question: &str, tool: &str) -> Vec<String> {
     scored.into_iter().take(2).filter(|(s, _)| *s * 3 >= top * 2).map(|(_, r)| format!("### {}\n{}", r.title, r.body)).collect()
 }
 
+/// The Studio's own names for tools, buttons and settings (from the reference cards). A reply that
+/// teaches a recipe should name at least one of the ones the recipe uses.
+const UI_TERMS: &[&str] = &[
+    // Pixel Art
+    "pencil", "eraser", "fill", "line (l)", "rectangle", "ellipse", "pick color", "mirror", "onion skin", "tile view", "grid", "canvas menu",
+    "flip left/right", "flip upside down", "shift by half", "replace left color", "copy", "play", "fps", "color box", "+ color", "swatch",
+    "starter 16", "forest", "dungeon", "grayscale", "four greens", "hframes", "nearest", "texture filter", "sprite2d", "flip h", "1:1", "2:1", "shift",
+    // 3D modeler and Sound Effects maker (their probes pass already; listed so grounded() is meaningful for them too)
+    "extrude", "inset", "merge", "subdivide", "scale", "rotate", "paint", "mirror x", "low-pass", "high-pass", "decay", "attack", "sustain",
+    "punch", "start pitch", "slide", "pitch jump", "vibrato", "volume", "mutate", "stop below", "phaser", "square duty", "wave",
+];
+
+/// Does the reply name any Studio tool or setting that this recipe uses?
+pub fn grounded(reply: &str, recipe: &str) -> bool {
+    let (r, body) = (reply.to_lowercase(), recipe.to_lowercase());
+    let used: Vec<&&str> = UI_TERMS.iter().filter(|t| body.contains(**t)).collect();
+    used.is_empty() || used.iter().any(|t| r.contains(**t))
+}
+
 #[cfg(test)]
 mod tests {
     use super::lookup;
@@ -57,6 +76,17 @@ mod tests {
     fn finds_the_right_recipe() {
         assert!(first("how do I give this fence post a pointy top?", "model").contains("Pointy top"));
         assert!(first("can I tilt the whole rock a bit?", "model").contains("Tilt"));
+        assert!(first("how do I make my grass tile repeat without seams?", "pixel").contains("Seamless"));
+        assert!(first("my character looks blurry in the game", "pixel").contains("Use the sprite"));
+        assert!(first("how do I make him walk?", "pixel").contains("Animation"));
+        assert!(first("the lines look jagged", "pixel").contains("jaggies"));
+        assert!(first("how do I add shadows so it looks less flat", "pixel").contains("Shading"));
+        assert!(lookup("how do I extrude a face", "pixel").iter().all(|r| !r.contains("Extrude")));
+        assert!(first("how can I make the coin spin?", "pixel").contains("Animation"));
+        assert!(first("I want a blue version of this slime too", "pixel").contains("palette"));
+        let blurry = first("the coin looks blurry when i run the game", "pixel");
+        assert!(!super::grounded("It looks blurry because the game draws it as a normal image.", &blurry));
+        assert!(super::grounded("Set Default Texture Filter to Nearest in Project Settings.", &blurry));
         assert!(first("the shoulders look too wide, how do I fix it", "model").contains("Narrower"));
         assert!(first("I want a crossguard on my sword, how?", "model").contains("crossguard"));
         assert!(first("how do I make the walls a different color than the roof", "model").contains("Paint"));

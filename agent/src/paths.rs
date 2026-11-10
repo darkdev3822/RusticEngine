@@ -18,6 +18,7 @@ const PATHS: &[(&str, &str)] = &[
     ("art-low-poly-character", include_str!("../paths/art-low-poly-character.md")),
     ("art-low-poly-environment", include_str!("../paths/art-low-poly-environment.md")),
     ("art-sound-effects", include_str!("../paths/art-sound-effects.md")),
+    ("art-pixel-sprite", include_str!("../paths/art-pixel-sprite.md")),
 ];
 
 fn title(text: &str) -> &str {
