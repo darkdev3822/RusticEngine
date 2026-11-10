@@ -113,6 +113,27 @@ fn claims_change(text: &str) -> bool {
 }
 
 /// "I've saved it to your journal" without a journal call.
+const STUDIO_MODEL: &str = include_str!("../prompt/studio_model.md");
+const STUDIO_SFX: &str = include_str!("../prompt/studio_sfx.md");
+
+/// The exact Studio tools for what's open, so Ember names real keys instead of inventing menus.
+fn studio_card(context: &str) -> Option<&'static str> {
+    if context.contains("in the Studio's 3D modeler") {
+        Some(STUDIO_MODEL.trim())
+    } else if context.contains("in the Studio's Sound Effects maker") {
+        Some(STUDIO_SFX.trim())
+    } else {
+        None
+    }
+}
+
+/// The project-relative path of the model or sound open in the Studio, from the editor context.
+fn studio_file(context: &str) -> Option<String> {
+    let i = context.find("res://")?;
+    let path: String = context[i + 6..].chars().take_while(|c| !c.is_whitespace() && *c != ':' && *c != ',' && *c != ')').collect();
+    (path.ends_with(".rmodel") || path.ends_with(".rsfx")).then_some(path)
+}
+
 fn claims_journal_save(text: &str) -> bool {
     let t = text.to_lowercase().replace('\u{2019}', "'");
     t.contains("design/journal/") || (t.contains("journal") && ["i've saved", "i saved", "saved it", "i've added", "i added", "i've noted", "i noted", "i've written", "i wrote"].iter().any(|v| t.contains(v)))
@@ -173,13 +194,23 @@ impl Session {
 
     fn handle_user(&mut self, text: &str, context: &str) {
         self.stop.store(false, Ordering::Relaxed);
-        let content = if context.is_empty() { text.to_string() } else { format!("{text}\n\n[Editor context: {context}]") };
+        let mut content = if context.is_empty() { text.to_string() } else { format!("{text}\n\n[Editor context: {context}]") };
+        if let Some(card) = studio_card(context) {
+            // Ground the advice in their real file: inspect what's open in the Studio up front.
+            if let Some(rel) = studio_file(context) {
+                if let Ok(info) = assets::info(&self.project.root.join(&rel), &rel) {
+                    content += &format!("\n\n[What's open, from asset_info on {rel}: {info}]");
+                }
+            }
+            content += &format!("\n\n[Studio reference: {card}]");
+        }
         self.history.push(Msg::User(content));
         let defs = tools::definitions();
         let mut rust_dirty = false;
         let mut auto_checks = 0;
         let mut changed_any = false;
         let mut claim_checked = false;
+        let in_studio = studio_card(context).is_some();
         let mut journal_saved = false;
         let mut promise_checked = false;
 
@@ -247,6 +278,16 @@ impl Session {
                     self.history.push(Msg::User(
                         "[Automatic check] You said you'd look something up but didn't call a tool. Call it now \
                          (journal, game_path, game_design, find_example, read_file...), then answer.".into()));
+                    continue;
+                }
+                if in_studio && !changed_any && !claim_checked && claims_change(&last) {
+                    // Studio art is theirs: never pretend to have changed it, and don't go and change it either.
+                    emit(json!({"type": "guard", "name": "studio_claim"}));
+                    claim_checked = true;
+                    emit(json!({"type": "text", "delta": "\n\nCorrection: I can't change Studio files myself, that part is yours. Here's how to do it:\n\n"}));
+                    self.history.push(Msg::User(
+                        "[Automatic check] You can't change their Studio files. Give the same idea as steps they do themselves \
+                         with the exact Studio controls (which key or slider, what value), without calling tools.".into()));
                     continue;
                 }
                 if !changed_any && !claim_checked && claims_change(&last) {
@@ -390,6 +431,14 @@ fn main() {
 
 #[cfg(test)]
 mod guard_tests {
+    #[test]
+    fn studio_file_from_context() {
+        use super::studio_file;
+        assert_eq!(studio_file("in the Studio's 3D modeler: res://assets/models/house.rmodel (8 vertices, 6 faces)").as_deref(), Some("assets/models/house.rmodel"));
+        assert_eq!(studio_file("in the Studio's Sound Effects maker: res://assets/sounds/boom.rsfx (unsaved changes): noise").as_deref(), Some("assets/sounds/boom.rsfx"));
+        assert_eq!(studio_file("in the Studio's Sound Effects maker: unsaved sound: noise wave"), None);
+    }
+
     use super::*;
     #[test]
     fn detects_fake_journal_saves() {

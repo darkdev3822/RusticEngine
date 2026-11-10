@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Does Ember guide Studio modeling (instead of doing it)? Held-out questions, not in training.
 
-A pass: Ember checks the model or sound (asset_info or look_at_image), names the right Studio tool or key,
+A pass: Ember (given the open file's asset_info by the agent) names the right Studio tool or key,
 and doesn't write files itself. Usage: python3 probe_studio.py MODEL [MODEL...]
 """
 import json, os, shutil, subprocess, sys, tempfile
@@ -66,9 +66,9 @@ for model in models:
         named = any(w in text.lower() for w in want)
         hands_off = not any(t in ("write_file", "edit_file", "new_rust_node") for t in tools)
         clean = "</think>" not in text  # no leaked reasoning tags
-        ok = looked and named and hands_off and clean
+        ok = named and hands_off and clean  # the agent inspects the open Studio file itself (main.rs studio_file)
         passed += ok
         print(f"{model:22s} {'OK ' if ok else '-- '} looked={looked!s:5} named={named!s:5} hands_off={hands_off!s:5} clean={clean!s:5} {q[:45]}", flush=True)
-        if not ok:
-            print(f"    tools={tools} reply: {' '.join(text.split())[-300:]}", flush=True)
+        if not ok or os.environ.get("PROBE_ALL"):
+            print(f"    tools={tools} reply: {' '.join(text.split())[-300:] if not os.environ.get('PROBE_ALL') else text}", flush=True)
     print(f"== {model}: studio {passed}/{len(PROBES)}", flush=True)
