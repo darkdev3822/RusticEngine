@@ -14,6 +14,7 @@ mod design;
 mod examples;
 mod paths;
 mod llm;
+mod studio;
 mod tools;
 
 use std::io::{BufRead, Write};
@@ -127,6 +128,48 @@ fn studio_card(context: &str) -> Option<&'static str> {
     }
 }
 
+/// Tidy a Studio reply before showing it: the model sometimes leaks reasoning tags, narrates looking
+/// again and again, or offers to change the art itself (it can't; the art is the creator's).
+fn clean_studio_reply(text: &str) -> String {
+    let mut t = text.to_string();
+    while let (Some(a), Some(b)) = (t.find("<think>"), t.find("</think>")) {
+        if b < a { break; }
+        t.replace_range(a..b + 8, "");
+    }
+    let t = t.replace("</think>", "").replace("<think>", "").replace("<tools>", "").replace("</tools>", "");
+    const DROP: &[&str] = &["let me look", "i'll look", "i look at", "let me check", "i'll check", "one moment", "just to be sure",
+        "want me to", "should i do it", "shall i", "i'll change it", "i'll do it", "i can do it for you", "do it for you", "for you?",
+        "change it for you", "tweak it for you", "let me look it up", "i'll make it", "let me change", "let me make",
+        "i've made", "i made it", "i've changed", "i changed", "i've added", "i added", "i've set", "build successful", "let me build",
+        "playtest", "(f5)", "look_at_image", "asset_info", "it looks great", "i'll make those changes", "i'll start by", "i'll change", "i'll add", "i'll set", "i'll make sure"];
+    let mut seen = std::collections::HashSet::new();
+    let mut lines = vec![];
+    for line in t.lines() {
+        let mut kept = vec![];
+        let mut rest = line;
+        loop {
+            // One sentence at a time (ends at ". ", "? " or "! "), so a single bad sentence doesn't take the line with it.
+            let cut = rest.char_indices().find(|&(i, c)| matches!(c, '.' | '?' | '!') && rest[i + 1..].starts_with(' ')).map(|(i, _)| i + 1);
+            let (sentence, next) = match cut { Some(i) => (&rest[..i], &rest[i + 1..]), None => (rest, "") };
+            let low = sentence.trim().to_lowercase().replace('\u{2019}', "'");
+            // Ember can show and explain, but never act on the art: drop "I'll ..." / "Let me ..." unless it's teaching.
+            let acting = ["i'll ", "i will ", "let me ", "now i'll "].iter().any(|p| low.trim_start_matches(|c: char| !c.is_alphanumeric()).starts_with(p))
+                && !["show", "explain", "walk", "help", "tell", "break it down", "go through"].iter().any(|w| low.contains(w));
+            let bad = acting || DROP.iter().any(|d| low.contains(d));
+            if !sentence.trim().is_empty() && !bad && (low.len() < 25 || seen.insert(low.clone())) {
+                kept.push(sentence.trim());
+            }
+            if next.is_empty() { break; }
+            rest = next;
+        }
+        let l = kept.join(" ");
+        if !l.is_empty() || lines.last().map(|x: &String| !x.is_empty()).unwrap_or(false) {
+            lines.push(if line.starts_with(char::is_whitespace) && !l.is_empty() { format!("  {l}") } else { l });
+        }
+    }
+    lines.join("\n").trim().to_string()
+}
+
 /// The project-relative path of the model or sound open in the Studio, from the editor context.
 fn studio_file(context: &str) -> Option<String> {
     let i = context.find("res://")?;
@@ -194,6 +237,7 @@ impl Session {
 
     fn handle_user(&mut self, text: &str, context: &str) {
         self.stop.store(false, Ordering::Relaxed);
+        let mut studio_how: Vec<String> = vec![];
         let mut content = if context.is_empty() { text.to_string() } else { format!("{text}\n\n[Editor context: {context}]") };
         if let Some(card) = studio_card(context) {
             // Ground the advice in their real file: inspect what's open in the Studio up front.
@@ -203,6 +247,13 @@ impl Session {
                 }
             }
             content += &format!("\n\n[Studio reference: {card}]");
+            let tool = if context.contains("Sound Effects maker") { "sound" } else { "model" };
+            let how = studio::lookup(text, tool);
+            studio_how = how.clone();
+            if !how.is_empty() {
+                content += &format!("\n\n[Verified Studio steps for this question. Teach these, in your own words, with the same keys and values; \
+                                     add nothing that isn't here or in the reference:\n{}]", how.join("\n\n"));
+            }
         }
         self.history.push(Msg::User(content));
         let defs = tools::definitions();
@@ -213,12 +264,18 @@ impl Session {
         let in_studio = studio_card(context).is_some();
         let mut journal_saved = false;
         let mut promise_checked = false;
+        // In the Studio the open file is already inspected above, so Ember gets one round of tools at most,
+        // and its reply is held back and cleaned (no reasoning tags, no "let me look again", no offers to do the art).
+        let no_tools: Vec<_> = vec![];
+        let mut studio_text = String::new();
 
-        for _ in 0..MAX_STEPS {
+        for step in 0..MAX_STEPS {
             trim_history(&mut self.history);
-            let mut on_text = |d: &str| emit(json!({"type": "text", "delta": d}));
+            let mut held = String::new();
+            let mut on_text = |d: &str| if in_studio { held.push_str(d) } else { emit(json!({"type": "text", "delta": d})) };
             let system = self.system_prompt();
-            let turn = match llm::chat(&self.cfg, &system, &self.history, &defs, &self.stop, &mut on_text) {
+            let round_defs = if in_studio && step > 0 { &no_tools } else { &defs };
+            let turn = match llm::chat(&self.cfg, &system, &self.history, round_defs, &self.stop, &mut on_text) {
                 Ok(t) => t,
                 Err(e) => {
                     emit(json!({"type": "error", "message": e}));
@@ -227,6 +284,9 @@ impl Session {
                 }
             };
             let mut turn = turn;
+            if in_studio {
+                studio_text = held;
+            }
             if turn.calls.is_empty() {
                 // Some local models write tool calls as JSON text instead of using the tool API.
                 turn.calls = parse_text_calls(&turn.text, &defs);
@@ -280,17 +340,7 @@ impl Session {
                          (journal, game_path, game_design, find_example, read_file...), then answer.".into()));
                     continue;
                 }
-                if in_studio && !changed_any && !claim_checked && claims_change(&last) {
-                    // Studio art is theirs: never pretend to have changed it, and don't go and change it either.
-                    emit(json!({"type": "guard", "name": "studio_claim"}));
-                    claim_checked = true;
-                    emit(json!({"type": "text", "delta": "\n\nCorrection: I can't change Studio files myself, that part is yours. Here's how to do it:\n\n"}));
-                    self.history.push(Msg::User(
-                        "[Automatic check] You can't change their Studio files. Give the same idea as steps they do themselves \
-                         with the exact Studio controls (which key or slider, what value), without calling tools.".into()));
-                    continue;
-                }
-                if !changed_any && !claim_checked && claims_change(&last) {
+                if !in_studio && !changed_any && !claim_checked && claims_change(&last) {
                     emit(json!({"type": "guard", "name": "change_claim"}));
                     claim_checked = true;
                     emit(json!({"type": "text", "delta": "\n\nWait - I haven't actually saved that change yet. Doing it now...\n\n"}));
@@ -335,6 +385,17 @@ impl Session {
                 if outcome.rust_built { emit(json!({"type": "rust_built"})); }
                 if call.name == "journal" && call.args["action"] == "add" && outcome.ok { journal_saved = true; }
                 self.history.push(Msg::Tool { id: call.id, name: call.name, content: outcome.content });
+            }
+        }
+        if in_studio {
+            let mut clean = clean_studio_reply(&studio_text);
+            if clean.len() < 120 && !studio_how.is_empty() {
+                // Nothing useful survived (the model tried to do it itself): give the verified steps directly.
+                clean = format!("{}{}Here's how you can do it:\n\n{}", clean, if clean.is_empty() { "" } else { "\n\n" },
+                    studio_how.iter().map(|h| h.lines().skip(1).collect::<Vec<_>>().join("\n")).collect::<Vec<_>>().join("\n\nOr:\n"));
+            }
+            if !clean.is_empty() {
+                emit(json!({"type": "text", "delta": clean}));
             }
         }
         emit(json!({"type": "done"}));
@@ -431,6 +492,15 @@ fn main() {
 
 #[cfg(test)]
 mod guard_tests {
+    #[test]
+    fn studio_reply_cleanup() {
+        let raw = "Let me look at the model first.\nI'll look at the picture too.\n</think>\n\n1. Press **1** for Vertices. Select the top corners.\n2. Press **M**.\n\nWhy: merging makes a point. Want me to do it for you?";
+        let c = super::clean_studio_reply(raw);
+        assert_eq!(c, "1. Press **1** for Vertices. Select the top corners.\n2. Press **M**.\n\nWhy: merging makes a point.");
+        let dup = "The top is flat. Let me look again.\nThe top is flat, so merge it. The top is flat, so merge it.";
+        assert_eq!(super::clean_studio_reply(dup), "The top is flat.\nThe top is flat, so merge it.");
+    }
+
     #[test]
     fn studio_file_from_context() {
         use super::studio_file;
