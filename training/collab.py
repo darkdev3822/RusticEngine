@@ -701,6 +701,10 @@ CHEST = rmodel(*box(1.0, 0.6, 0.6), ["#8b5a2b"] * 6)
 TREE = tree_model()
 _hv, _hf = box(0.35, 1.1, 0.4, x0=0.0)
 HALF_BODY = rmodel(_hv, _hf[:3] + _hf[4:], ["#3a6ea5"] * 5, mirror=True)  # no face on the mirror seam, like the Studio
+HOUSE = rmodel(*box(2.0, 1.6, 2.0), ["#c9a27e"] * 6)
+ROCK = rmodel(*box(1.0, 0.7, 0.8), ["#7d7d78"] * 6)
+import studio_cases as SC  # noqa: E402
+STUDIO_QA_ALL = None  # filled below, after STUDIO_QA
 
 STUDIO_CTX = "in the Studio's 3D modeler: res://assets/models/{name}.rmodel ({nv} vertices, {nf} faces, {nc} colors{mir}), {sel}, picture from last save: design/studio/{name}.png"
 
@@ -812,14 +816,36 @@ STUDIO_QA = [
 ]
 
 
-def studio_qa(name, src, mode, asks, reply):
+def studio_qa(name, src, mode, asks, reply, look="no"):
+    """look: "no" (asset_info is enough), "yes" (also look at the saved picture, once), "missing" (picture not there: answer anyway)."""
     t, system = start(files={f"assets/models/{name}.rmodel": src}, mode=mode)
+    if look == "yes":
+        render_preview(src, t.project / f"design/studio/{name}.png")
     t.user(pick(asks) + f"\n\n[Editor context: {studio_ctx(name, src)}]")
-    (res,) = t.step("", [("asset_info", {"path": f"assets/models/{name}.rmodel"})])
-    assert "Studio 3D model" in res["content"], res["content"]
+    calls = [("asset_info", {"path": f"assets/models/{name}.rmodel"})]
+    if look != "no":
+        calls.append(("look_at_image", {"path": f"design/studio/{name}.png"}))
+    res = t.step("", calls)
+    assert "Studio 3D model" in res[0]["content"], res[0]["content"]
+    if look == "yes":
+        assert res[1]["ok"], res[1]["content"]
+    elif look == "missing":
+        assert not res[1]["ok"], res[1]["content"]
+        reply = "(There's no saved picture yet, so I went by the model's numbers.)\n\n" + reply
     t.say(reply)
     return t, system
 
+
+def sfx_qa(name, src, mode, asks, reply):
+    t, system = start(files={f"assets/sounds/{name}.rsfx": src}, mode=mode)
+    t.user(pick(asks) + f"\n\n[Editor context: {SC.sfx_ctx(name, src)}]")
+    (res,) = t.step("", [("asset_info", {"path": f"assets/sounds/{name}.rsfx"})])
+    assert "Studio sound effect" in res["content"], res["content"]
+    t.say(reply)
+    return t, system
+
+
+STUDIO_QA_ALL = STUDIO_QA + SC.more_model_qa(CHEST, TREE, HALF_BODY, HOUSE, ROCK)
 
 ART_PATH_STARTS = [
     (["I want to learn how to make 3D models", "how do I start making my own 3d art?", "I've never modeled anything, where do I begin"], "art-low-poly-prop",
@@ -828,6 +854,12 @@ ART_PATH_STARTS = [
     (["how do I make my own character model?", "I want to model my main character"], "art-low-poly-character",
      "Characters are the most rewarding thing to model, and you don't need detail, just good shapes. There's a 7-step Art Path: you model one half with Mirror X, and the other half builds itself.\n\n"
      "First, who are they? Give me three words for their personality. Round shapes feel friendly, square ones sturdy, pointy ones dangerous, so that tells us where to start."),
+    (["how do I make trees and rocks for my world?", "I want to make my own environment art"], "art-low-poly-environment",
+     "Worlds are built from kits: a few pieces (a couple of trees, some rocks, a wall) placed many times at different sizes and rotations. There's a 6-step Art Path for building one in the Studio.\n\n"
+     "Step 1 is the look of the whole world, so every piece matches: what's the mood? Lush and bright, dry and harsh, cold and quiet?"),
+    (["how do I make sound effects?", "I want to make my own sounds for the game", "can I make my own jump and coin sounds"], "art-sound-effects",
+     "Yes, and it's one of the quickest ways to make a game feel alive! The Studio has a Sound Effects maker, and there's a 7-step Art Path for it: you start from a preset (Jump, Coin, Laser...) and learn to shape it with envelope, pitch and filters.\n\n"
+     "Step 1: what does the player do most? List the actions that need a sound (jump, collect, get hit...), with one word for how each should feel."),
 ]
 
 
@@ -879,8 +911,12 @@ def jobs():
         yield "paths", (lambda p=pid, st=step, ti=title: path_continue(p, st, ti))
     for args in REFERENCES:
         yield "reference", (lambda a=args: reference(*a))
-    for args in STUDIO_QA:
-        yield "studio", (lambda a=args: studio_qa(*a))
+    for i, args in enumerate(STUDIO_QA_ALL):
+        yield "studio", (lambda a=args: studio_qa(*a, look="no"))
+        yield "studio", (lambda a=args, m=("missing" if i % 10 == 3 else "yes"): studio_qa(*a, look=m))
+    for args in SC.SFX_QA:
+        for _ in range(2):
+            yield "studio", (lambda a=args: sfx_qa(*a))
     for args in ART_PATH_STARTS:
         for _ in range(2):
             yield "studio", (lambda a=args: art_path_start(*a))
