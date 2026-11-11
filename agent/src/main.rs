@@ -9,11 +9,13 @@
 //!
 //! Also usable from a terminal for testing:
 //!   rustic-agent --project DIR --engine PATH --provider ollama --model qwen2.5-coder:7b --ask "make the player jump"
+//!   rustic-agent --mcp --project DIR    (MCP server over stdio for Claude Code, Codex and other agents)
 mod assets;
 mod design;
 mod examples;
 mod paths;
 mod llm;
+mod mcp;
 mod mechanics;
 mod studio;
 mod tools;
@@ -546,6 +548,20 @@ fn main() {
         engine: arg(&args, "--engine").map(PathBuf::from),
         cache_dir: PathBuf::from(home).join(".cache/rusticengine"),
     };
+    if args.iter().any(|a| a == "--mcp") {
+        // MCP server for outside agents (Claude Code, Codex...). Find the editor next to us if not given.
+        let mut project = project;
+        if project.engine.is_none() {
+            project.engine = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf()))
+                .and_then(|d| std::fs::read_dir(d).ok())
+                .and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| {
+                    let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    n.starts_with("godot") && n.contains("editor")
+                }));
+        }
+        mcp::serve(project);
+        return;
+    }
     let cfg = Config {
         provider: arg(&args, "--provider").unwrap_or_else(|| "ollama".into()),
         base_url: arg(&args, "--base-url").unwrap_or_default(),

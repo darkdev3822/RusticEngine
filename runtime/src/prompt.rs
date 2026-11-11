@@ -35,6 +35,36 @@ pub fn py_json(v: &Value, out: &mut String) {
     }
 }
 
+/// json.dumps(v, indent=n): one item per line, "," + newline between items, ": " after keys.
+fn py_json_indent(v: &Value, n: usize, depth: usize, out: &mut String) {
+    let pad = |d: usize, out: &mut String| { out.push('\n'); out.push_str(&" ".repeat(n * d)); };
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            out.push('{');
+            for (i, (k, v)) in m.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                pad(depth + 1, out);
+                out.push_str(&Value::String(k.clone()).to_string());
+                out.push_str(": ");
+                py_json_indent(v, n, depth + 1, out);
+            }
+            pad(depth, out);
+            out.push('}');
+        }
+        Value::Array(a) if !a.is_empty() => {
+            out.push('[');
+            for (i, v) in a.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                pad(depth + 1, out);
+                py_json_indent(v, n, depth + 1, out);
+            }
+            pad(depth, out);
+            out.push(']');
+        }
+        other => py_json(other, out),
+    }
+}
+
 fn sorted(v: &Value) -> Value {
     match v {
         Value::Object(m) => {
@@ -146,4 +176,71 @@ pub fn build(messages: &[Value], tools: &[Value], think: bool) -> String {
     s.push_str("<|im_start|>assistant\n");
     if !think { s.push_str("<think>\n\n</think>\n\n"); }
     s
+}
+
+/// Is this the Qwen-style ChatML + <tool_call> format? Then `build` reproduces it exactly
+/// (byte-for-byte what Ember was trained on). Anything else goes through the model's own template.
+pub fn is_qwen_style(template: &str) -> bool {
+    // Qwen3 and its fine-tunes (like Ember). Qwen2.5 looks similar but lays the prompt out differently,
+    // so it uses its own template like any other model.
+    template.is_empty() || (template.contains("<|im_start|>") && template.contains("<tool_call>") && template.contains("enable_thinking"))
+}
+
+/// Render the model's own Jinja chat template (stored in the GGUF), the way Hugging Face's
+/// apply_chat_template does: messages in OpenAI shape, tools, add_generation_prompt.
+pub fn build_jinja(template: &str, messages: &[Value], tools: &[Value], think: bool,
+                   bos: &str, eos: &str) -> Result<String, String> {
+    let mut env = minijinja::Environment::new();
+    minijinja_contrib::add_to_environment(&mut env);
+    env.set_unknown_method_callback(minijinja_contrib::pycompat::unknown_method_callback);
+    env.add_function("raise_exception", |msg: String| -> Result<String, minijinja::Error> {
+        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, msg))
+    });
+    // Python's json.dumps style, like Hugging Face's tojson (minijinja's own is compact and HTML-escaped).
+    env.add_filter("tojson", |v: minijinja::Value, kwargs: minijinja::value::Kwargs| -> Result<String, minijinja::Error> {
+        let indent: Option<usize> = kwargs.get("indent")?;
+        let _: Option<bool> = kwargs.get("ensure_ascii")?;
+        let _: Option<bool> = kwargs.get("sort_keys")?;
+        kwargs.assert_all_used()?;
+        let j = serde_json::to_value(&v).map_err(|e| minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))?;
+        let mut out = String::new();
+        match indent {
+            Some(n) => py_json_indent(&j, n, 0, &mut out),
+            None => py_json(&j, &mut out),
+        }
+        Ok(out)
+    });
+    env.add_function("strftime_now", |_fmt: String| -> String { "26 Jul 2026".to_string() });
+    env.add_template("chat", template).map_err(|e| format!("the model's chat template doesn't parse: {e}"))?;
+
+    // OpenAI-style messages: arguments as objects (most templates call |tojson on them),
+    // and ids that link tool results to their calls (some templates require them).
+    let mut n = 0;
+    let mut pending: Vec<String> = vec![];
+    let msgs: Vec<Value> = messages.iter().map(|m| {
+        let mut m = m.clone();
+        if let Some(calls) = m["tool_calls"].as_array_mut() {
+            for c in calls.iter_mut() {
+                n += 1;
+                let id = format!("call{n:06}");
+                pending.push(id.clone());
+                let f = if c["function"].is_object() { c["function"].clone() } else { c.clone() };
+                *c = serde_json::json!({"id": id, "type": "function", "function": f});
+            }
+        }
+        if m["role"] == "tool" && m.get("tool_call_id").is_none() && !pending.is_empty() {
+            m["tool_call_id"] = Value::String(pending.remove(0));
+        }
+        if m["content"].is_null() { m["content"] = Value::String(String::new()); }
+        m
+    }).collect();
+    let ctx = minijinja::context! {
+        messages => minijinja::Value::from_serialize(&msgs),
+        tools => if tools.is_empty() { minijinja::Value::from(()) } else { minijinja::Value::from_serialize(tools) },
+        add_generation_prompt => true,
+        enable_thinking => think,
+        bos_token => bos,
+        eos_token => eos,
+    };
+    env.get_template("chat").unwrap().render(ctx).map_err(|e| format!("the model's chat template failed: {e}"))
 }

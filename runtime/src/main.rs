@@ -52,9 +52,17 @@ fn parse_args() -> Result<Args, String> {
                 let path = val()?;
                 let body: Value = serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?)
                     .map_err(|e| e.to_string())?;
-                print!("{}", prompt::build(body["messages"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                                           body["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                                           body["think"].as_bool().unwrap_or(false)));
+                let (m, t) = (body["messages"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                              body["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]));
+                let think = body["think"].as_bool().unwrap_or(false);
+                // With "template" in the request file, render that Jinja template instead (testing).
+                match body["template"].as_str() {
+                    Some(tpl) => match prompt::build_jinja(tpl, m, t, think, body["bos"].as_str().unwrap_or(""), body["eos"].as_str().unwrap_or("")) {
+                        Ok(s) => print!("{s}"),
+                        Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+                    },
+                    None => print!("{}", prompt::build(m, t, think)),
+                }
                 std::process::exit(0);
             }
             "-h" | "--help" => {
@@ -111,8 +119,14 @@ fn run(args: Args) -> Result<(), String> {
 
     // Qwen3-style models get an empty <think></think> block when thinking is off (as in training);
     // older chat models (e.g. Qwen2.5) don't know that block at all.
-    let thinking = model.meta_val_str("tokenizer.chat_template").map(|t| t.contains("<think>")).unwrap_or(true);
-    let mut state = Engine { model: &model, cache: Vec::new(), thinking };
+    let template = model.meta_val_str("tokenizer.chat_template").unwrap_or_default();
+    let thinking = template.is_empty() || template.contains("<think>");
+    // Ember and other Qwen-style models get the exact hand-written format; others their own template.
+    let qwen = prompt::is_qwen_style(&template);
+    let vocab = model.vocab();
+    let piece = |t| String::from_utf8_lossy(&vocab.token_to_piece(t, true, None)).into_owned();
+    let (bos, eos) = (piece(vocab.bos()), piece(vocab.eos()));
+    let mut state = Engine { model: &model, cache: Vec::new(), thinking, qwen, template, bos, eos };
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         if let Err(e) = handle(stream, &mut state, &mut ctx, &name) {
@@ -128,6 +142,10 @@ struct Engine<'m> {
     model: &'m LlamaModel,
     cache: Vec<LlamaToken>,
     thinking: bool,
+    qwen: bool,
+    template: String,
+    bos: String,
+    eos: String,
 }
 
 struct Request {
@@ -192,8 +210,21 @@ fn send_line(stream: &mut TcpStream, v: &Value) -> bool {
 fn chat(stream: &mut TcpStream, eng: &mut Engine, ctx: &mut LlamaContext, body: &Value) -> Result<(), String> {
     // `think: true` lets the model reason first; otherwise thinking models get the empty block.
     let think = body["think"].as_bool().unwrap_or(false) || !eng.thinking;
-    let text = prompt::build(body["messages"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                             body["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]), think);
+    let messages = body["messages"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+    let tools = body["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+    let text = if eng.qwen {
+        prompt::build(messages, tools, think)
+    } else {
+        match prompt::build_jinja(&eng.template, messages, tools, body["think"].as_bool().unwrap_or(false), &eng.bos, &eng.eos) {
+            Ok(t) => t,
+            Err(e) => {
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n").map_err(|e| e.to_string())?;
+                send_line(stream, &json!({"error": format!("This model can't be used: {e}")}));
+                return Ok(());
+            }
+        }
+    };
+    // (Templates that write the BOS token's text get the real token: specials are parsed when tokenizing.)
     let opts = &body["options"];
     let temperature = opts["temperature"].as_f64().unwrap_or(0.6) as f32;
     let top_k = opts["top_k"].as_i64().unwrap_or(20) as i32;
@@ -282,7 +313,11 @@ fn chat(stream: &mut TcpStream, eng: &mut Engine, ctx: &mut LlamaContext, body: 
     if n_new >= max_new { done_reason = "length"; }
     if !alive { return Ok(()); }
 
-    let (content, calls, sent) = out.finish();
+    let (mut content, mut calls, sent) = out.finish();
+    if calls.is_empty() && !eng.qwen {
+        calls = other_tool_calls(&content);
+        if !calls.is_empty() { content.clear(); }
+    }
     // When streaming, whatever wasn't streamed yet (e.g. a tool call we couldn't parse) goes in the last line.
     let content = if stream_mode { content.get(sent..).unwrap_or("").to_string() } else { content };
     let calls: Vec<Value> = calls.into_iter()
@@ -292,6 +327,25 @@ fn chat(stream: &mut TcpStream, eng: &mut Engine, ctx: &mut LlamaContext, body: 
     send_line(stream, &json!({"message": msg, "done": true, "done_reason": done_reason,
                               "prompt_eval_count": tokens.len() - keep, "eval_count": n_new}));
     Ok(())
+}
+
+/// Tool calls in the other common formats: Mistral's `[TOOL_CALLS][{...}]` and Llama 3's bare
+/// `{"name": ..., "parameters": {...}}` reply.
+fn other_tool_calls(text: &str) -> Vec<(String, Value)> {
+    let t = text.trim();
+    let t = t.strip_prefix("<|python_tag|>").unwrap_or(t).trim();
+    let json_part = t.find("[TOOL_CALLS]").map(|i| t[i + "[TOOL_CALLS]".len()..].trim()).unwrap_or(t);
+    let Ok(v) = serde_json::from_str::<Value>(json_part) else { return vec![] };
+    let items = match v { Value::Array(a) => a, o @ Value::Object(_) => vec![o], _ => return vec![] };
+    items.into_iter().filter_map(|c| {
+        let name = c["name"].as_str()?.to_string();
+        let args = match c.get("arguments").or_else(|| c.get("parameters")) {
+            Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(json!({})),
+            Some(o @ Value::Object(_)) => o.clone(),
+            _ => json!({}),
+        };
+        Some((name, args))
+    }).collect()
 }
 
 fn rand_seed() -> u32 {

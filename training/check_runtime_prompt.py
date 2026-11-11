@@ -28,9 +28,16 @@ def to_ollama(msgs):
     return out
 
 
+JINJA = "--jinja" in sys.argv  # render through the runtime's Jinja path with the real template instead
+if JINJA: sys.argv.remove("--jinja")
+
+
 def render(msgs, tools):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump({"messages": to_ollama(msgs), "tools": tools, "think": False}, f)
+        req = {"messages": to_ollama(msgs), "tools": tools, "think": False}
+        if JINJA:
+            req["template"] = tok.chat_template
+        json.dump(req, f)
     return subprocess.run([str(RUNTIME), "--render", f.name], capture_output=True, text=True, check=True).stdout
 
 

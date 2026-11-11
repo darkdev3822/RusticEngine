@@ -7,6 +7,8 @@ license = "GPL-3.0-only"
 
 [dependencies]
 llama-cpp-2 = { version = "=0.1.161", default-features = false, features = ["openmp"] }
+minijinja = { version = "2", features = ["json", "builtins", "preserve_order"] }
+minijinja-contrib = { version = "2", features = ["pycompat"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 
 [features]
