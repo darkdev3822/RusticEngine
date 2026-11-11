@@ -10,7 +10,8 @@ func _enter_tree() -> void:
 func _go() -> void:
 	var h := preload("helpers.gd").new(self)
 	var path := OS.get_environment("E2E_SCENARIO")
-	var scenario = load(path).new() if path != "" else null
+	var scr = load(path) if path != "" else null
+	var scenario = scr.new() if scr is GDScript and scr.can_instantiate() else null
 	if scenario == null:
 		h.fail("couldn't load scenario %s" % path)
 	else:

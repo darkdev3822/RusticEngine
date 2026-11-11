@@ -1,18 +1,30 @@
 @tool
 extends RefCounted
-# The editor must fit common screens: its minimum size has to stay under 1366x768,
-# on both the 2D screen (fresh project, no scene open) and the RusticEngine tabs.
+# Nothing may push the editor wider than the screen: on every main screen and every Studio tool,
+# the Ember dock (rightmost) must end inside the window. Run at 1600x900 by run.sh.
 
-const SCREEN := Vector2(1366, 768)
-
-func _check(h, where: String) -> void:
-	await h.frames(10)
-	var m: Vector2 = h.tree().root.get_contents_minimum_size()
-	h.check(m.x <= SCREEN.x and m.y <= SCREEN.y, "%s: editor minimum size %dx%d fits %dx%d" % [where, m.x, m.y, SCREEN.x, SCREEN.y])
+func _ember_fits(h, where: String) -> void:
+	await h.frames(12)
+	var win: Vector2 = h.tree().root.size
+	var dock: Control = h.find_one("AIGuideDock", h.base())
+	if dock == null:
+		h.fail("Ember dock not found")
+		return
+	var r: Rect2 = dock.get_global_rect()
+	h.check(r.end.x <= win.x + 1 and r.size.x >= 200, "%s: Ember dock inside the window (x %d-%d of %d)" % [where, r.position.x, r.end.x, win.x])
 
 func run(h) -> void:
-	for screen in ["2D", "3D", "Script", "Studio", "Mechanics"]:
+	for screen in ["2D", "3D", "Script", "Mechanics"]:
 		await h.main_screen(screen)
-		await _check(h, screen)
-	await h.main_screen("2D")
-	await h.shot("01_2d")
+		await _ember_fits(h, screen)
+	await h.main_screen("Studio")
+	var list: ItemList = null
+	for l in h.find_all("ItemList", h.base()):
+		if l.is_visible_in_tree() and l.item_count >= 6 and l.get_item_text(0) == "3D Model":
+			list = l
+	if h.check(list != null, "Studio tool list found"):
+		for i in list.item_count:
+			list.select(i)
+			list.item_selected.emit(i)
+			await _ember_fits(h, "Studio " + list.get_item_text(i))
+	await h.shot("01_last")

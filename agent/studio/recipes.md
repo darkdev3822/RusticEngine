@@ -516,7 +516,7 @@ keys: time day night morning noon evening dusk dawn sunset sunrise afternoon
 ## Warmer, cozier or golden light
 tool: sky
 keys: warm warmer cozy golden orange cinematic beautiful light
-1. Set Time of day to about 16:30-17:30 (golden hour), or press Golden Hour.
+1. Set Time of day to about 17:15-17:45 (golden hour: the sun 5-12° up), or press Golden Hour.
 2. Turn the Sun direction so light comes from the side of your scene: long shadows show shapes.
 
 ## Make it moody, gloomy or stormy
