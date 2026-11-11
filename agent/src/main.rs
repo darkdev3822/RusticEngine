@@ -14,6 +14,7 @@ mod design;
 mod examples;
 mod paths;
 mod llm;
+mod mechanics;
 mod studio;
 mod tools;
 
@@ -117,6 +118,10 @@ fn claims_change(text: &str) -> bool {
 const STUDIO_MODEL: &str = include_str!("../prompt/studio_model.md");
 const STUDIO_SFX: &str = include_str!("../prompt/studio_sfx.md");
 const STUDIO_PIXEL: &str = include_str!("../prompt/studio_pixel.md");
+const STUDIO_MUSIC: &str = include_str!("../prompt/studio_music.md");
+const STUDIO_SKY: &str = include_str!("../prompt/studio_sky.md");
+const STUDIO_UI: &str = include_str!("../prompt/studio_ui.md");
+const MECHANICS_CARD: &str = include_str!("../prompt/mechanics.md");
 
 /// The exact Studio tools for what's open, so Ember names real keys instead of inventing menus.
 fn studio_card(context: &str) -> Option<&'static str> {
@@ -126,6 +131,12 @@ fn studio_card(context: &str) -> Option<&'static str> {
         Some(STUDIO_SFX.trim())
     } else if context.contains("in the Studio's Pixel Art painter") {
         Some(STUDIO_PIXEL.trim())
+    } else if context.contains("in the Studio's Music maker") {
+        Some(STUDIO_MUSIC.trim())
+    } else if context.contains("in the Studio's Sky maker") {
+        Some(STUDIO_SKY.trim())
+    } else if context.contains("in the Studio's UI Kit maker") {
+        Some(STUDIO_UI.trim())
     } else {
         None
     }
@@ -179,7 +190,31 @@ fn clean_studio_reply(text: &str) -> String {
 fn studio_file(context: &str) -> Option<String> {
     let i = context.find("res://")?;
     let path: String = context[i + 6..].chars().take_while(|c| !c.is_whitespace() && *c != ':' && *c != ',' && *c != ')').collect();
-    (path.ends_with(".rmodel") || path.ends_with(".rsfx") || path.ends_with(".rpix")).then_some(path)
+    [".rmodel", ".rsfx", ".rpix", ".rmusic", ".rsky", ".rui"].iter().any(|e| path.ends_with(e)).then_some(path)
+}
+
+/// The mechanic the creator is looking at in the Mechanics tab, or one their message points to by folder.
+fn mechanic_in_context(context: &str, text: &str) -> Option<String> {
+    for src in [text, context] {
+        if let Some(i) = src.find("res://mechanics/") {
+            let id: String = src[i + 16..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            if !id.is_empty() {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+/// "Make me a double jump", "add a dash": the creator wants something built (full tool loop).
+fn wants_build(text: &str) -> bool {
+    let t = text.to_lowercase();
+    ["make me", "create", "build", "add a", "add an", "new mechanic", "write", "implement", "code a", "make a"].iter().any(|w| t.contains(w))
+}
+
+fn wants_explanation(text: &str) -> bool {
+    let t = text.to_lowercase();
+    ["explain", "how does", "how do", "how it works", "how is", "what does", "why", "understand", "teach", "walk me through"].iter().any(|w| t.contains(w))
 }
 
 fn claims_journal_save(text: &str) -> bool {
@@ -188,6 +223,20 @@ fn claims_journal_save(text: &str) -> bool {
 }
 
 /// The reply ends on a promise to look something up ("Let me check...") instead of doing it.
+/// "I'll start by creating the mechanic." / "First, I'll write the code." - a promise to build, not a build.
+fn promises_action(text: &str) -> bool {
+    let t = text.trim_end().to_lowercase().replace('\u{2019}', "'");
+    if t.ends_with('?') {
+        return false;
+    }
+    let body = t.trim_end_matches(['.', ':', '!', '\u{2026}']);
+    let last = body.rsplit(['.', '\n']).next().unwrap_or(body).trim();
+    let last = ["first, ", "now ", "next, ", "ok, ", "okay, ", "sure, ", "great, ", "then "].iter().fold(last, |s, p| s.strip_prefix(p).unwrap_or(s));
+    let rest = ["let me ", "i'll ", "i will ", "i'm going to ", "i am going to "].iter().find_map(|p| last.strip_prefix(p));
+    const DO: [&str; 12] = ["start", "create", "write", "make", "build", "add", "set up", "begin", "implement", "code", "put", "go ahead"];
+    rest.is_some_and(|r| DO.iter().any(|v| r.starts_with(v)))
+}
+
 fn promises_lookup(text: &str) -> bool {
     let t = text.trim_end().to_lowercase().replace('\u{2019}', "'");
     let line = t.rsplit('\n').next().unwrap_or("").trim();
@@ -252,12 +301,36 @@ impl Session {
                 }
             }
             content += &format!("\n\n[Studio reference: {card}]");
-            let tool = if context.contains("Sound Effects maker") { "sound" } else if context.contains("Pixel Art painter") { "pixel" } else { "model" };
+            let tool = if context.contains("Sound Effects maker") { "sound" } else if context.contains("Pixel Art painter") { "pixel" }
+                else if context.contains("Music maker") { "music" } else if context.contains("Sky maker") { "sky" }
+                else if context.contains("UI Kit maker") { "ui" } else { "model" };
             let how = studio::lookup(text, tool);
             studio_how = how.clone();
             if !how.is_empty() {
                 content += &format!("\n\n[Verified Studio steps for this question. Teach these, in your own words, with the same keys and values; \
                                      add nothing that isn't here or in the reference:\n{}]", how.join("\n\n"));
+            }
+        }
+        let mut mech_how: Vec<String> = vec![];
+        let mechanic_id = mechanic_in_context(context, text);
+        if let Some(id) = mechanic_id.clone() {
+            // Ground answers in the real mechanic: its parts and values, and for explanations its ideas.
+            content += &format!("\n\n[Mechanics reference: {}]", MECHANICS_CARD.trim());
+            if let Ok(info) = mechanics::info(&self.project.root, &id) {
+                content += &format!("\n\n[What's open, from mechanic info on {id}: {info}]\n[You already have this mechanic's parts, current tuning values and ideas above: answer from them directly. \
+                                     Name tuning values exactly as written there (e.g. walk_speed). Only use tools for a file that isn't shown here.]");
+            }
+            mech_how = mechanics::tuning_matches(&self.project.root, &id, text);
+            if !mech_how.is_empty() && !wants_build(text) {
+                content += &format!("\n\n[Tuning values that match this question (name = current value: what it does). Suggest the right one by its exact name, \
+                                     a number to try and why; the creator changes it in the Mechanics tab:\n{}]", mech_how.join("\n"));
+            }
+            if wants_explanation(text) {
+                let ideas = mechanics::how_it_works(&self.project.root, &id, &["problem", "one frame", "why", "what is", "two ", "frame-rate", "camera rig", "signals", "data vs", "firm and"], 4500);
+                if !ideas.is_empty() {
+                    content += &format!("\n\n[More of HOW_IT_WORKS.md for {id}. Teach from it in your own words: the idea first, then one frame step by step, \
+                                         then where it is in the code; finish with one predict-then-test question for the sandbox:\n{ideas}]");
+                }
             }
         }
         self.history.push(Msg::User(content));
@@ -266,9 +339,16 @@ impl Session {
         let mut auto_checks = 0;
         let mut changed_any = false;
         let mut claim_checked = false;
-        let in_studio = studio_card(context).is_some();
+        // Studio and Mechanics questions get one round of tools, a buffered reply and a cleanup; requests
+        // to build something keep the full tool loop.
+        let in_mech = mechanic_id.is_some() && !wants_build(text);
+        let in_studio = studio_card(context).is_some() || in_mech;
         let mut journal_saved = false;
         let mut promise_checked = false;
+        // A new mechanic is only a skeleton until its src/ gets real logic.
+        let mut scaffolded: Option<String> = None;
+        let mut logic_written = false;
+        let mut scaffold_checked = false;
         // In the Studio the open file is already inspected above, so Ember gets one round of tools at most,
         // and its reply is held back and cleaned (no reasoning tags, no "let me look again", no offers to do the art).
         let no_tools: Vec<_> = vec![];
@@ -345,6 +425,23 @@ impl Session {
                          (journal, game_path, game_design, find_example, read_file...), then answer.".into()));
                     continue;
                 }
+                if wants_build(text) && !changed_any && !promise_checked && promises_action(&last) {
+                    emit(json!({"type": "guard", "name": "build_promise"}));
+                    promise_checked = true;
+                    self.history.push(Msg::User(
+                        "[Automatic check] You said what you'll build but didn't build it. Do it now with the tools \
+                         (for a new mechanic: `mechanic` action new, then edit_file its src/, then build_rust), and only then reply.".into()));
+                    continue;
+                }
+                if let (Some(id), false, false) = (scaffolded.clone(), logic_written, scaffold_checked) {
+                    emit(json!({"type": "guard", "name": "empty_mechanic"}));
+                    scaffold_checked = true;
+                    self.history.push(Msg::User(format!(
+                        "[Automatic check] The {id} mechanic is still the empty skeleton from `mechanic` new: nothing in mechanics/{id}/src/ has its logic yet. \
+                         Read mechanics/{id}/src/ files, write the logic with edit_file (put every tunable number in tuning.rs as an #[export(range = ...)] field \
+                         with a /// comment, and in tuning.tres), build_rust, and only then say it's done.")));
+                    continue;
+                }
                 if !in_studio && !changed_any && !claim_checked && claims_change(&last) {
                     emit(json!({"type": "guard", "name": "change_claim"}));
                     claim_checked = true;
@@ -374,6 +471,14 @@ impl Session {
                 };
                 emit(json!({"type": "tool_end", "name": call.name, "ok": outcome.ok, "summary": summary}));
                 let touched = call.args["path"].as_str().unwrap_or("");
+                if call.name == "mechanic" && call.args["action"].as_str() == Some("new") && outcome.ok {
+                    scaffolded = call.args["id"].as_str().map(|s| s.trim().to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
+                }
+                if let Some(id) = &scaffolded {
+                    if outcome.ok && (call.name == "edit_file" || call.name == "write_file") && touched.contains(&format!("mechanics/{id}/src/")) {
+                        logic_written = true;
+                    }
+                }
                 if outcome.files_changed && (call.name == "new_rust_node" || touched.ends_with(".rs") || touched.ends_with("Cargo.toml")) {
                     rust_dirty = true;
                 }
@@ -402,6 +507,16 @@ impl Session {
                 // Nothing useful survived (the model tried to do it itself): give the verified steps directly.
                 clean = format!("{}{}Here's how you can do it:\n\n{}", clean, if clean.is_empty() { "" } else { "\n\n" },
                     studio_how.iter().map(|h| h.lines().skip(1).collect::<Vec<_>>().join("\n")).collect::<Vec<_>>().join("\n\nOr:\n"));
+            }
+            if in_mech && !mech_how.is_empty() {
+                let names: Vec<String> = mech_how.iter().filter_map(|m| m.trim_start_matches("- ").split(" = ").next().map(String::from)).collect();
+                let low = clean.to_lowercase();
+                let named = names.iter().any(|n| low.contains(n) || low.contains(&n.replace('_', " ")));
+                if clean.len() < 120 {
+                    clean = format!("{}{}The values for this are in the Mechanics tab:\n{}", clean, if clean.is_empty() { "" } else { "\n\n" }, mech_how.join("\n"));
+                } else if !named {
+                    clean = format!("{clean}\n\nIn the Mechanics tab, the values for this:\n{}", mech_how.join("\n"));
+                }
             }
             if !clean.is_empty() {
                 emit(json!({"type": "text", "delta": clean}));
@@ -519,6 +634,11 @@ mod guard_tests {
         assert_eq!(studio_file("in the Studio's Sound Effects maker: res://assets/sounds/boom.rsfx (unsaved changes): noise").as_deref(), Some("assets/sounds/boom.rsfx"));
         assert_eq!(studio_file("in the Studio's Sound Effects maker: unsaved sound: noise wave"), None);
         assert_eq!(studio_file("in the Studio's Pixel Art painter: res://assets/art/hero.rpix (unsaved changes): 16x16 px").as_deref(), Some("assets/art/hero.rpix"));
+        assert_eq!(studio_file("in the Studio's Music maker: res://assets/music/town.rmusic: 120 BPM").as_deref(), Some("assets/music/town.rmusic"));
+        assert_eq!(super::mechanic_in_context("in the Mechanics tab, looking at the HUD mechanic (res://mechanics/hud, The on-screen display)", "hi").as_deref(), Some("hud"));
+        assert!(super::wants_explanation("Explain the First-Person Controller mechanic to me"));
+        assert!(super::promises_action("It'll need to know about the jump. I'll start by creating the new mechanic, Double Jump, and then I'll write the code."));
+        assert!(!super::promises_action("Done: the double jump works. Want me to add a sound?"));
     }
 
     use super::*;

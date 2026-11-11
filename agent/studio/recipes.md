@@ -427,3 +427,180 @@ keys: layer layers select selection copy paste move brush size dither dithering 
 1. The Pixel Art painter has no layers, selection, brush sizes or rotation yet.
 2. Workarounds: Shift by Half moves everything (wrapping), Flip mirrors, Copy duplicates a frame. Dithering is a checker pattern of two colors, drawn with Pencil.
 3. For bigger jobs, free tools like Pixelorama or LibreSprite work, and their .png files import straight into the project.
+
+## Start a song
+tool: music
+keys: start new begin song music empty compose write first make
+1. Press a "Start from" preset (Adventure, Dungeon, Arcade) to hear a finished loop, or Empty to start from nothing.
+2. Pick a Key and a Scale first: every grid row then belongs to that scale, so notes never clash.
+3. Build from the bottom up: drums and bass first (the groove), then chords, then the melody on Lead.
+
+## Happier, sadder or spookier mood
+tool: music
+keys: happy sad mood dark spooky scary creepy tense upbeat cheerful emotional epic scale minor major feel dungeon town village forest boss battle level area menu
+1. Change Scale: Major = happy and bright, Minor = sad or serious, Harmonic minor = exotic and dramatic, Dorian = minor but hopeful, Pentatonic = can't clash.
+2. Your notes stay on the same rows, so the same pattern takes on the new mood.
+3. Tempo matters as much: under 90 BPM feels heavy or calm, over 140 energetic.
+
+## Faster or slower
+tool: music
+keys: faster slower tempo bpm speed slow fast energetic calm
+1. Change Tempo (BPM). 60-90 calm, 100-130 walking and dancing, 140+ chases and arcade games.
+2. The grid doesn't change, only how fast it plays.
+
+## Write a melody
+tool: music
+keys: melody tune lead catchy memorable notes hum theme
+1. Select the Lead track. Click notes on the grid; drag right while holding to make a note longer.
+2. Start and end phrases on a highlighted row (the key's home note): it sounds finished there.
+3. Leave gaps: rests make a melody easier to remember. Repeat an idea, then change it slightly the second time.
+4. Move mostly in small steps (neighboring rows), with an occasional jump.
+
+## Chords and harmony
+tool: music
+keys: chord chords harmony fuller progression background pad
+1. Select the Chords track. Stack three notes in one column, two rows apart (rows 0, 2, 4 is a chord on the home note).
+2. Change chord every bar or half bar. A classic order in major: start on row 0, then 4, 5, 3 (I-V-vi-IV).
+3. Keep chords softer than the lead: lower Volume, or set Filter (around 1500 Hz) to darken them.
+
+## Bass line
+tool: music
+keys: bass bassline low groove foundation
+1. Select the Bass track (Octave 2). Put a note on the first step of each chord, on the chord's lowest row.
+2. Add a note or two between for movement; Triangle or Square waves work well.
+
+## Drum beat
+tool: music
+keys: drums beat rhythm kick snare hihat hi-hat clap percussion groove
+1. Select Drums. Kick on steps 1 and 9 of each bar (beats 1 and 3), Snare on steps 5 and 13 (beats 2 and 4): the backbone of most music.
+2. Add Hi-hats on every second step to fill the space. Clap can replace or double the snare.
+3. Swing makes the hi-hats bounce: try 0.3-0.5.
+
+## Softer or harsher sound
+tool: music
+keys: harsh soft softer smooth buzzy bright dull warm sound tone instrument wave filter
+1. Change Wave: Sine and Triangle are soft, Square is hollow 8-bit, Saw is bright and buzzy, Pulse is thin and nasal.
+2. Lower the Filter (Hz) to darken a bright wave; 0 turns the filter off.
+3. Raise Attack for notes that fade in (pads), lower Release for short plucky notes.
+
+## Balance the tracks
+tool: music
+keys: mix loud quiet balance volume drowned hear louder quieter mute
+1. Select a track and change its Volume. The melody should be clearly on top; chords quieter behind it.
+2. Use "Mute this track" to hear what each part adds.
+
+## Longer loop
+tool: music
+keys: longer loop repetitive repeat bars length short boring
+1. Raise Bars (up to 8). 4-8 bars gives a melody room to go somewhere and come back.
+2. Copy the idea of the first bars, then change the ending, so the loop has a question and an answer.
+
+## Use the music in the game
+tool: music
+keys: game use wav save export background play loop audiostreamplayer autoplay
+1. Save writes the .rmusic and a looping .wav next to it.
+2. In a scene, add an AudioStreamPlayer, set its Stream to the .wav and turn on Autoplay. It loops seamlessly (Ember can hook it up in code too).
+
+## Missing tools (more tracks, vocals, real instruments)
+tool: music
+keys: vocals singing guitar piano real instrument samples more tracks import midi
+1. The Music maker has four tracks with synth waves; it has no samples, vocals or MIDI import.
+2. For more, free tools like LMMS or BeepBox export .wav or .ogg files that drop straight into the project.
+
+## Change the time of day
+tool: sky
+keys: time day night morning noon evening dusk dawn sunset sunrise afternoon
+1. Drag Time of day. The sun's height sets the light: low = warm and long shadows, high = white light, below the horizon = twilight then night.
+2. Press "Play the day" to watch it run, or start from Golden Hour, Sunset or Night.
+
+## Warmer, cozier or golden light
+tool: sky
+keys: warm warmer cozy golden orange cinematic beautiful light
+1. Set Time of day to about 16:30-17:30 (golden hour), or press Golden Hour.
+2. Turn the Sun direction so light comes from the side of your scene: long shadows show shapes.
+
+## Make it moody, gloomy or stormy
+tool: sky
+keys: moody gloomy stormy grey gray overcast rainy dark sad cloudy
+1. Press Overcast, or raise Clouds Coverage to 0.8-1.0 and Softness to 0.5.
+2. Lower Sun brightness and Sky light; add Fog (0.02-0.04).
+3. For a storm, raise Drift speed.
+
+## Clouds
+tool: sky
+keys: clouds cloud fluffy coverage clear sky cartoony
+1. Coverage: how much of the sky is cloudy (0 = clear).
+2. Softness: fluffy (high) or sharp, cartoony edges (low). Size: bigger or smaller clouds. Drift speed: how fast they move.
+
+## Night sky and stars
+tool: sky
+keys: night stars moon dark starry
+1. Set Time of day after about 20:00, or press Night: the light becomes a dim, cool moon and the stars fade in.
+2. Stars sets how many. If the scene is too dark to play, raise Sky light.
+
+## Fog and depth
+tool: sky
+keys: fog mist haze depth distance far atmosphere hide
+1. Raise Fog: distant things fade into the horizon color. 0.005-0.015 adds depth; 0.03+ hides how far the world goes.
+
+## Alien, strange or fantasy sky
+tool: sky
+keys: alien strange weird fantasy otherworldly purple green unusual planet custom colors
+1. Turn off "Follow the time of day", then pick your own Sky (top), Horizon, Ground and Sunlight colors.
+2. A big Sun size (4-10°) and strong Sun glow make another world. Or press Alien World to start.
+
+## Darker or brighter shadows
+tool: sky
+keys: shadows shadow dark bright contrast fill ambient lighting
+1. Sky light controls how much the sky fills in shadows: low = dramatic dark shadows, high = soft and bright.
+
+## Use the sky in a scene
+tool: sky
+keys: game use scene save export worldenvironment drop 3d level
+1. Save writes the .rsky and a .tscn next to it with a WorldEnvironment and a Sun.
+2. Drag that .tscn into your 3D scene. Remove any other WorldEnvironment so there's only one sky.
+
+## Start a UI style
+tool: ui
+keys: start new style look menu ui interface theme begin
+1. Press a "Start from" style: Clean, Dark Fantasy, Sci-Fi, Cozy or Retro.
+2. Then change the Accent color to your game's main color and adjust Corner radius to set the feel.
+
+## Match the game's mood
+tool: ui
+keys: mood fit feel fantasy scifi sci-fi cozy horror medieval cute serious match style
+1. Corners: round (Corner radius 10-16) = friendly and cozy; square (0-2) = serious, technical or retro.
+2. Colors: one strong Accent on calm Panel colors. Warm accents feel friendly; cold ones technical.
+3. Border adds a hand-made or retro look; Shadow size lifts panels off the game.
+
+## Text is hard to read
+tool: ui
+keys: read readable hard contrast text see legible accessibility visible
+1. Look at the contrast check: aim for 4.5:1 or more (it turns red below that).
+2. Make Text much lighter than a dark Panel (or much darker than a light one). For buttons, change Button text or the Accent.
+3. Raise Font size to 18-24 px for important text.
+
+## Buttons don't feel clickable
+tool: ui
+keys: buttons clickable flat hover pressed states feedback click
+1. Raise State change (0.2-0.3) so hover is clearly lighter and pressed clearly darker.
+2. Add a little Shadow size and Shadow offset, so buttons sit above the panel.
+
+## See-through menu over the game
+tool: ui
+keys: transparent see-through translucent overlay panel alpha
+1. Click the Panel color and lower its alpha: the game shows through behind menus.
+2. Check the contrast again: see-through panels can make text harder to read.
+
+## Spacing and size
+tool: ui
+keys: cramped spacing space padding big small tiny size crowded
+1. Raise Padding for calmer, easier-to-click buttons and panels.
+2. Raise Font size if text feels small.
+
+## Use the UI style in the game
+tool: ui
+keys: game use theme save export tres apply nine 9-slice ninepatch
+1. Save writes the .rui, a Theme (<name>_theme.tres) and 9-slice button pictures in <name>_9slice/.
+2. Set the Theme on your UI's root Control (Inspector > Theme), or in Project Settings > GUI > Theme > Custom for the whole game.
+3. The 9-slice PNGs go in a NinePatchRect (or StyleBoxTexture) with the margins the save message names.

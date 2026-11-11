@@ -118,7 +118,7 @@ pub fn definitions() -> Vec<ToolDef> {
                 "query": {"type": "string", "description": "search: words to look for"},
                 "title": {"type": "string", "description": "add: the entry's title"},
                 "text": {"type": "string", "description": "add: the entry, in the creator's words"}}, "required": ["action"]}) },
-        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making assets in the Studio (3D models: a prop, a character, an environment kit; sound effects). No arguments lists them; a path opens its overview; a path and step opens that step.",
+        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making assets in the Studio (3D models: a prop, a character, an environment kit; sound effects; a pixel art sprite; a music loop). No arguments lists them; a path opens its overview; a path and step opens that step.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. open-world-rpg"},
                 "step": {"type": "integer", "description": "Step number, starting at 1"}}}) },
@@ -129,6 +129,16 @@ pub fn definitions() -> Vec<ToolDef> {
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. design/concept/forest.png"},
                 "question": {"type": "string", "description": "Optional: what to look for, e.g. 'What colors and mood does this have?'"}}, "required": ["path"]}) },
+        ToolDef { name: "mechanic", description: "Mechanics are self-contained game mechanics, one folder each in mechanics/<id>/ (code in src/, values in tuning.tres, a sandbox scene, HOW_IT_WORKS.md). action 'list': what's in the project and which starters exist. action 'info': one mechanic's parts, current tuning values and main ideas (read this before explaining or changing it). action 'new': create a new mechanic in the right shape and register it, then write its logic with edit_file.",
+            schema: json!({"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["list", "info", "new"]},
+                "id": {"type": "string", "description": "info/new: snake_case id, e.g. first_person, stamina, double_jump"},
+                "name": {"type": "string", "description": "new: display name, e.g. Double Jump"},
+                "summary": {"type": "string", "description": "new: one sentence about what it does"},
+                "node": {"type": "string", "description": "new: the node class in PascalCase (default: from the id)"},
+                "base": {"type": "string", "description": "new: Godot base class of the node, e.g. Node, Node3D, CharacterBody3D, Area3D, Control"},
+                "uses": {"type": "array", "items": {"type": "string"}, "description": "new: ids of mechanics it needs, e.g. [\"stats\"]"}},
+                "required": ["action"]}) },
         ToolDef { name: "set_mode", description: "Switch how you work with the creator: 'learning' (teach them as you build together) or 'autonomous' (you build, they direct). Only when they ask for it.",
             schema: json!({"type": "object", "properties": {
                 "mode": {"type": "string", "enum": ["learning", "autonomous"]}}, "required": ["mode"]}) },
@@ -138,7 +148,7 @@ pub fn definitions() -> Vec<ToolDef> {
 /// Art the creator makes themselves in the Studio. Ember guides; it never writes these.
 pub fn is_studio_art(path: &str) -> bool {
     let p = path.trim_start_matches("res://").to_lowercase();
-    p.ends_with(".rmodel") || p.ends_with(".rsfx") || p.ends_with(".rpix") || p.starts_with("design/studio/")
+    [".rmodel", ".rsfx", ".rpix", ".rmusic", ".rsky", ".rui"].iter().any(|e| p.ends_with(e)) || p.starts_with("design/studio/")
 }
 
 const STUDIO_HANDS_OFF: &str = "Studio files are the creator's own art: they make them in the Studio tab, you don't write them. \
@@ -156,6 +166,11 @@ pub fn summary(name: &str, args: &Value) -> String {
         "run_game" => format!("Playtesting the game ({} s)", args["seconds"].as_f64().unwrap_or(5.0)),
         "class_info" => format!("Looking up {}", args["class_name"].as_str().unwrap_or("?")),
         "asset_info" => format!("Inspecting {p}"),
+        "mechanic" => match args["action"].as_str() {
+            Some("new") => format!("Creating the {} mechanic", args["id"].as_str().unwrap_or("?")),
+            Some("info") => format!("Reading the {} mechanic", args["id"].as_str().unwrap_or("?")),
+            _ => "Listing mechanics".to_string(),
+        },
         "find_example" => format!("Finding examples of {}", args["query"].as_str().unwrap_or("?")),
         "journal" => if args["action"] == "add" { format!("Saving \"{}\" to the journal", args["title"].as_str().unwrap_or("idea")) }
                      else { format!("Searching the journal for {}", args["query"].as_str().unwrap_or("?")) },
@@ -242,6 +257,20 @@ impl Project {
                 },
             },
             "game_design" => ok(crate::design::search(args["query"].as_str().unwrap_or(""))),
+            "mechanic" => {
+                let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
+                match s("action").as_str() {
+                    "info" => match crate::mechanics::info(&self.root, &s("id")) { Ok(t) => ok(t), Err(e) => fail(e) },
+                    "new" => {
+                        let uses: Vec<String> = args["uses"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+                        match crate::mechanics::scaffold(&self.root, &s("id"), &s("name"), &s("summary"), &s("node"), &s("base"), &uses) {
+                            Ok(t) => Outcome { files_changed: true, ..ok(t) },
+                            Err(e) => fail(e),
+                        }
+                    }
+                    _ => ok(crate::mechanics::list(&self.root)),
+                }
+            }
             "find_example" => ok(crate::examples::search(args["query"].as_str().unwrap_or(""), 2)),
             "asset_info" => match self.resolve(path, false) {
                 Ok(p) => match crate::assets::info(&p, path) { Ok(t) => ok(t), Err(e) => fail(e) },
@@ -903,6 +932,8 @@ mod studio_tests {
         assert!(super::is_studio_art("res://assets/sounds/boom.rsfx"));
         assert!(super::is_studio_art("design/studio/house.png"));
         assert!(super::is_studio_art("assets/art/hero.rpix"));
+        assert!(super::is_studio_art("assets/music/theme.rmusic") && super::is_studio_art("assets/skies/dusk.rsky") && super::is_studio_art("assets/ui/game.rui"));
+        assert!(!super::is_studio_art("mechanics/stats/tuning.tres"));
         assert!(!super::is_studio_art("rust/src/player.rs"));
         assert!(!super::is_studio_art("design/vision.md"));
     }

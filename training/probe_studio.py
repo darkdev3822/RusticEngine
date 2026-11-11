@@ -75,6 +75,38 @@ PROBES += [
     ("pixel", "knight", KNIGHT, "the edges look kinda staircase-y and messy", ["1:1", "2:1", "step", "jagg"]),
     ("pixel", "coin", COIN, "the coin looks blurry when i run the game", ["nearest", "texture filter"]),
 ]
+# Music, Sky and UI Kit files (the JSON the Studio saves) and their editor context lines.
+def rmusic(scale="Major", key=0, bpm=110, wave_chords="saw", cutoff=0.0, drums=None):
+    notes_lead = [[0, 7, 2], [2, 9, 2], [4, 8, 4]]
+    tracks = [
+        {"name": "Lead", "kind": "notes", "muted": False, "wave": "square", "octave": 4, "attack": 0.005, "decay": 0.12, "sustain": 0.55, "release": 0.08, "cutoff": 0.0, "volume": 0.45, "notes": notes_lead},
+        {"name": "Chords", "kind": "notes", "muted": False, "wave": wave_chords, "octave": 3, "attack": 0.04, "decay": 0.3, "sustain": 0.5, "release": 0.25, "cutoff": cutoff, "volume": 0.5, "notes": [[0, 7, 8], [0, 9, 8], [0, 11, 8]]},
+        {"name": "Bass", "kind": "notes", "muted": False, "wave": "triangle", "octave": 2, "attack": 0.005, "decay": 0.2, "sustain": 0.7, "release": 0.06, "cutoff": 0.0, "volume": 0.7, "notes": [[0, 0, 4], [8, 4, 4]]},
+        {"name": "Drums", "kind": "drums", "muted": False, "wave": "square", "octave": 4, "attack": 0.0, "decay": 0.0, "sustain": 0.0, "release": 0.0, "cutoff": 0.0, "volume": 0.7, "notes": drums if drums is not None else [[0, 0, 1], [8, 0, 1]]},
+    ]
+    return json.dumps({"format": "rustic-music", "version": 1, "bpm": bpm, "key": key, "scale": scale, "bars": 2, "swing": 0.0, "tracks": tracks}, indent="\t")
+def rsky(hour=12.5, auto=True, coverage=0.25, fog=0.01, ambient=0.6):
+    return json.dumps({"format": "rustic-sky", "version": 1, "auto_colors": auto, "hour": hour, "sun_azimuth_offset": 0, "sun_energy": 1.0, "sun_size": 1.5, "sun_glow": 0.35,
+                       "cloud_coverage": coverage, "cloud_softness": 0.25, "cloud_scale": 1.0, "cloud_speed": 0.02, "stars": 1.0, "fog": fog, "ambient": ambient,
+                       "top": "#2a63c4", "horizon": "#a9cdea", "ground": "#4a4a46", "sun": "#fff4e0"}, indent="\t")
+def rui(text="#f2f2f2", panel="#22262e", accent="#3d7be0", radius=6, border=0, state=0.15, shadow=4):
+    return json.dumps({"format": "rustic-ui", "version": 1, "accent": accent, "panel": panel, "text": text, "button_text": "#ffffff", "corner_radius": radius, "border_width": border,
+                       "padding": 10, "font_size": 18, "shadow_size": shadow, "shadow_offset": 2, "state_strength": state}, indent="\t")
+TOOL_FILE = {"music": ("assets/music", "rmusic", "Music maker"), "sky": ("assets/skies", "rsky", "Sky maker"), "ui": ("assets/ui", "rui", "UI Kit maker")}
+PROBES += [
+    ("music", "village", rmusic(scale="Minor", key=9, bpm=80), "my village theme feels kind of sad, i want it cheerful", ["scale", "major"]),
+    ("music", "boring", rmusic(drums=[]), "the drums are boring, how do I make a proper beat?", ["kick", "snare"]),
+    ("music", "harsh", rmusic(wave_chords="saw"), "the chords are really buzzy and hurt my ears", ["filter", "wave", "sine", "triangle"]),
+    ("music", "theme", rmusic(), "ok how do I get this playing in my game?", ["audiostreamplayer", "autoplay"]),
+    ("sky", "evening", rsky(hour=13.0), "I want that warm light right before the sun goes down", ["time of day", "golden"]),
+    ("sky", "storm", rsky(), "can I make it look like a storm is coming?", ["coverage", "overcast", "fog"]),
+    ("sky", "night", rsky(hour=1.0, ambient=0.1), "at night everything is pitch black, players can't see anything", ["sky light"]),
+    ("sky", "level_sky", rsky(), "how do I put this sky into my level?", [".tscn", "worldenvironment"]),
+    ("ui", "health_ui", rui(text="#3a3f4a", panel="#22262e"), "the text on my menu panel is really hard to see", ["contrast", "text"]),
+    ("ui", "medieval", rui(), "I want my menus to feel more medieval", ["corner radius", "border", "dark fantasy"]),
+    ("ui", "main_menu", rui(), "how do I use this style on my main menu?", ["theme"]),
+    ("ui", "flat", rui(state=0.0, shadow=0), "players don't realize the buttons can be clicked", ["state change", "shadow"]),
+]
 if os.environ.get("PROBE_KIND"):
     PROBES = [p for p in PROBES if p[0] == os.environ["PROBE_KIND"]]
 for model in models:
@@ -87,6 +119,11 @@ for model in models:
             Path(d + f"/p/assets/models/{name}.rmodel").write_text(src)
             collab.render_preview(src, d + f"/p/design/studio/{name}.png")  # the Studio saves this picture on every save
             ctx = collab.studio_ctx(name, src)
+        elif kind in TOOL_FILE:
+            folder, ext, label = TOOL_FILE[kind]
+            Path(d + f"/p/{folder}").mkdir(parents=True, exist_ok=True)
+            Path(d + f"/p/{folder}/{name}.{ext}").write_text(src)
+            ctx = f"in the Studio's {label}: res://{folder}/{name}.{ext}: (open in the Studio)"
         elif kind == "pixel":
             Path(d + "/p/assets/art").mkdir(parents=True, exist_ok=True)
             Path(d + f"/p/assets/art/{name}.rpix").write_text(src)

@@ -27,7 +27,7 @@ fn recipes() -> Vec<Recipe> {
             else if let Some(k) = l.strip_prefix("keys:") { keys = k.to_string(); }
             else if !l.trim().is_empty() { body.push(l.trim_end()); }
         }
-        let tool: &'static str = match tool { "sound" => "sound", "pixel" => "pixel", _ => "model" };
+        let tool: &'static str = match tool { "sound" => "sound", "pixel" => "pixel", "music" => "music", "sky" => "sky", "ui" => "ui", _ => "model" };
         out.push(Recipe { title, tool, words: words(&format!("{title} {keys}")), body: body.join("\n") });
     }
     out
@@ -56,6 +56,10 @@ const UI_TERMS: &[&str] = &[
     "pencil", "eraser", "fill", "line (l)", "rectangle", "ellipse", "pick color", "mirror", "onion skin", "tile view", "grid", "canvas menu",
     "flip left/right", "flip upside down", "shift by half", "replace left color", "copy", "play", "fps", "color box", "+ color", "swatch",
     "starter 16", "forest", "dungeon", "grayscale", "four greens", "hframes", "nearest", "texture filter", "sprite2d", "flip h", "1:1", "2:1", "shift",
+    // Music, Sky and UI Kit
+    "tempo", "key", "scale", "bars", "swing", "lead", "chords", "bass", "drums", "octave", "release", "filter", "mute", "kick", "snare", "hi-hat",
+    "time of day", "golden hour", "overcast", "coverage", "softness", "drift speed", "stars", "fog", "sky light", "sun size", "sun glow", "follow the time of day",
+    "corner radius", "border", "padding", "font size", "shadow size", "state change", "contrast", "accent", "panel color", "button text", "theme", "ninepatchrect",
     // 3D modeler and Sound Effects maker (their probes pass already; listed so grounded() is meaningful for them too)
     "extrude", "inset", "merge", "subdivide", "scale", "rotate", "paint", "mirror x", "low-pass", "high-pass", "decay", "attack", "sustain",
     "punch", "start pitch", "slide", "pitch jump", "vibrato", "volume", "mutate", "stop below", "phaser", "square duty", "wave",
@@ -82,6 +86,12 @@ mod tests {
         assert!(first("the lines look jagged", "pixel").contains("jaggies"));
         assert!(first("how do I add shadows so it looks less flat", "pixel").contains("Shading"));
         assert!(lookup("how do I extrude a face", "pixel").iter().all(|r| !r.contains("Extrude")));
+        assert!(first("this song sounds too happy for my dungeon", "music").contains("mood"));
+        assert!(first("how do I make a drum beat", "music").contains("Drum beat"));
+        assert!(first("can I get a sunset", "sky").contains("time of day"));
+        assert!(first("make it look stormy and gloomy", "sky").contains("moody"));
+        assert!(first("my menu text is hard to read", "ui").contains("hard to read"));
+        assert!(first("the buttons look flat, nobody knows they're clickable", "ui").contains("clickable"));
         assert!(first("how can I make the coin spin?", "pixel").contains("Animation"));
         assert!(first("I want a blue version of this slime too", "pixel").contains("palette"));
         let blurry = first("the coin looks blurry when i run the game", "pixel");

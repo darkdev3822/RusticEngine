@@ -255,6 +255,87 @@ fn rpix_summary(v: &Value, rel: &str) -> String {
     out
 }
 
+/// A song made in the Studio's Music maker (.rmusic, JSON): tempo, key, scale, and what each track plays.
+fn rmusic_summary(v: &Value, rel: &str) -> String {
+    const KEYS: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const DRUMS: [&str; 4] = ["kick", "snare", "hi-hat", "clap"];
+    let bpm = v["bpm"].as_f64().unwrap_or(110.0);
+    let bars = v["bars"].as_i64().unwrap_or(2);
+    let key = KEYS[(v["key"].as_i64().unwrap_or(0).rem_euclid(12)) as usize];
+    let scale = v["scale"].as_str().unwrap_or("Major");
+    let mut tracks = vec![];
+    for t in v["tracks"].as_array().cloned().unwrap_or_default() {
+        let name = t["name"].as_str().unwrap_or("Track");
+        let notes = t["notes"].as_array().cloned().unwrap_or_default();
+        let muted = if t["muted"].as_bool().unwrap_or(false) { " (muted)" } else { "" };
+        if t["kind"].as_str() == Some("drums") {
+            let mut count = [0usize; 4];
+            for n in &notes {
+                if let Some(r) = n.get(1).and_then(|r| r.as_u64()) { if (r as usize) < 4 { count[r as usize] += 1; } }
+            }
+            let hits: Vec<String> = (0..4).filter(|&d| count[d] > 0).map(|d| format!("{} {}", count[d], DRUMS[d])).collect();
+            tracks.push(format!("{name}{muted}: {}", if hits.is_empty() { "no hits".into() } else { hits.join(", ") }));
+        } else {
+            let steps: Vec<i64> = notes.iter().filter_map(|n| n.get(0).and_then(|x| x.as_i64())).collect();
+            let rows: Vec<i64> = notes.iter().filter_map(|n| n.get(1).and_then(|x| x.as_i64())).collect();
+            let range = match (rows.iter().min(), rows.iter().max()) { (Some(a), Some(b)) => format!(", rows {a}-{b}"), _ => String::new() };
+            let first = steps.iter().min().map(|s| format!(", starts at step {s}")).unwrap_or_default();
+            tracks.push(format!("{name}{muted}: {} wave, octave {}, {} notes{range}{first}, attack {:.2} s, release {:.2} s{}, volume {:.2}",
+                t["wave"].as_str().unwrap_or("square"), t["octave"].as_i64().unwrap_or(4), notes.len(),
+                t["attack"].as_f64().unwrap_or(0.0), t["release"].as_f64().unwrap_or(0.0),
+                if t["cutoff"].as_f64().unwrap_or(0.0) > 0.0 { format!(", filter {:.0} Hz", t["cutoff"].as_f64().unwrap_or(0.0)) } else { String::new() },
+                t["volume"].as_f64().unwrap_or(0.5)));
+        }
+    }
+    let secs = bars as f64 * 16.0 * 60.0 / bpm.max(1.0) / 4.0;
+    let stem = rel.trim_end_matches(".rmusic");
+    format!("Studio song (made in RusticEngine's Studio tab, Music). {bpm:.0} BPM, {key} {scale}, {bars} bars ({secs:.1} s loop){}.\nTracks: {}.\n\
+             Grid rows are notes of the scale (row 0 = the track's home note, +7 rows = one octave up in 7-note scales); 16 steps per bar.\n\
+             The game uses {stem}.wav (exported on every save; it loops seamlessly).",
+        if v["swing"].as_f64().unwrap_or(0.0) > 0.01 { ", with swing" } else { "" }, tracks.join("; "))
+}
+
+/// A sky made in the Studio's Sky maker (.rsky, JSON).
+fn rsky_summary(v: &Value, rel: &str) -> String {
+    let f = |k: &str| v[k].as_f64().unwrap_or(0.0);
+    let hour = f("hour");
+    let elev = 65.0 * ((hour - 6.0) / 12.0 * std::f64::consts::PI).sin();
+    let phase = if elev < -6.0 { "night" } else if elev < 0.0 { "twilight" } else if elev < 10.0 { "sunrise/sunset" } else if elev < 25.0 { "low golden sun" } else { "daylight" };
+    let colors = if v["auto_colors"].as_bool().unwrap_or(true) { "colors follow the time of day".to_string() }
+        else { format!("custom colors: sky {}, horizon {}, ground {}, sunlight {}", v["top"].as_str().unwrap_or("?"), v["horizon"].as_str().unwrap_or("?"), v["ground"].as_str().unwrap_or("?"), v["sun"].as_str().unwrap_or("?")) };
+    let stem = rel.trim_end_matches(".rsky");
+    let name = stem.rsplit('/').next().unwrap_or(stem);
+    format!("Studio sky (made in RusticEngine's Studio tab, Sky). Time {:02}:{:02} ({phase}, sun {elev:.0}° up), {colors}. Sun size {:.1}°, glow {:.2}; clouds {:.0}% (softness {:.2}, size {:.2}, drift {:.3}); stars {:.0}%; fog {:.3}; sky light {:.2}.\n\
+             The game uses {stem}.tscn (WorldEnvironment + Sun; drop it into a 3D scene). A preview picture is at design/studio/{name}.png (use look_at_image).",
+        hour.floor() as i64 % 24, ((hour.fract()) * 60.0).round() as i64 % 60, f("sun_size"), f("sun_glow"), f("cloud_coverage") * 100.0, f("cloud_softness"),
+        f("cloud_scale"), f("cloud_speed"), f("stars") * 100.0, f("fog"), f("ambient"))
+}
+
+/// A UI kit made in the Studio's UI Kit maker (.rui, JSON), with its contrast check.
+fn rui_summary(v: &Value, rel: &str) -> String {
+    fn lum(hex: &str) -> f64 {
+        let h = hex.trim_start_matches('#');
+        let ch = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("00"), 16).unwrap_or(0) as f64 / 255.0;
+        let lin = |c: f64| if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+        0.2126 * lin(ch(0)) + 0.7152 * lin(ch(2)) + 0.0722 * lin(ch(4))
+    }
+    fn contrast(a: &str, b: &str) -> f64 {
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+    let c = |k: &str| v[k].as_str().unwrap_or("#000000").to_string();
+    let f = |k: &str| v[k].as_f64().unwrap_or(0.0);
+    let (ct, cb) = (contrast(&c("text"), &c("panel")), contrast(&c("button_text"), &c("accent")));
+    let verdict = |x: f64| if x >= 4.5 { "readable" } else if x >= 3.0 { "big text only" } else { "TOO LOW" };
+    let stem = rel.trim_end_matches(".rui");
+    let name = stem.rsplit('/').next().unwrap_or(stem);
+    format!("Studio UI kit (made in RusticEngine's Studio tab, UI Kit). Accent {}, panel {}, text {}, button text {}; corners {:.0} px, border {:.0} px, padding {:.0} px, font {:.0} px, shadow {:.0} px (offset {:.0}), state change {:.2}.\n\
+             Contrast: text on panel {ct:.1}:1 ({}), text on buttons {cb:.1}:1 ({}).\n\
+             The game uses {stem}_theme.tres (a Theme: set it on the UI's root Control) and 9-slice button pictures in {stem}_9slice/. A preview picture is at design/studio/{name}.png.",
+        c("accent"), c("panel"), c("text"), c("button_text"), f("corner_radius"), f("border_width"), f("padding"), f("font_size"), f("shadow_size"), f("shadow_offset"), f("state_strength"),
+        verdict(ct), verdict(cb))
+}
+
 pub fn info(full: &Path, rel: &str) -> Result<String, String> {
     if full.is_dir() {
         let mut items: Vec<String> = fs::read_dir(full).map_err(|e| e.to_string())?
@@ -282,6 +363,9 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
         "rmodel" => serde_json::from_slice::<Value>(&b).map(|v| rmodel_summary(&v, rel)).unwrap_or("Studio model (couldn't parse it).".into()),
         "rsfx" => serde_json::from_slice::<Value>(&b).map(|v| rsfx_summary(&v, rel)).unwrap_or("Studio sound (couldn't parse it).".into()),
         "rpix" => serde_json::from_slice::<Value>(&b).map(|v| rpix_summary(&v, rel)).unwrap_or("Studio sprite (couldn't parse it).".into()),
+        "rmusic" => serde_json::from_slice::<Value>(&b).map(|v| rmusic_summary(&v, rel)).unwrap_or("Studio song (couldn't parse it).".into()),
+        "rsky" => serde_json::from_slice::<Value>(&b).map(|v| rsky_summary(&v, rel)).unwrap_or("Studio sky (couldn't parse it).".into()),
+        "rui" => serde_json::from_slice::<Value>(&b).map(|v| rui_summary(&v, rel)).unwrap_or("Studio UI kit (couldn't parse it).".into()),
         "fbx" | "obj" | "blend" | "dae" => format!("3D model ({e}). Godot imports it as a scene (.blend needs Blender installed). \
                                                     If it gives trouble, exporting it as .glb from the modelling program is the most reliable."),
         "wav" => wav_summary(&b).unwrap_or("WAV sound.".into()) + "\nPlay it with an AudioStreamPlayer (or AudioStreamPlayer2D for sound in the world).",
