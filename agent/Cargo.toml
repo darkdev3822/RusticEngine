@@ -6,7 +6,7 @@ description = "Ember: the AI guide behind RusticEngine"
 
 [dependencies]
 ureq = { version = "2", features = ["json"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 strip = true

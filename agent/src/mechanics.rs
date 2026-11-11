@@ -369,9 +369,20 @@ TODO: what problem this solves for the player, in plain words.
     lib += &format!("\n#[path = \"../../mechanics/{id}/src/mod.rs\"]\nmod {id};\n");
     fs::write(&lib_path, lib).map_err(|e| e.to_string())?;
     let list: Vec<String> = files.iter().map(|(r, _)| format!("mechanics/{id}/{r}")).collect();
+    // Working code to copy patterns from, if those starters are in the project.
+    const EXAMPLES: [(&str, &str); 5] = [
+        ("first_person/src/controller.rs", "input actions, moving a CharacterBody3D, jump timing, emitting signals"),
+        ("first_person/src/jump.rs", "pure Rust rules with tests"),
+        ("stats/src/stats.rs", "signals with values, #[func] methods other mechanics call, find_stats()"),
+        ("combat/src/hurtbox.rs", "groups, calling into another mechanic's node (crate::stats), knockback"),
+        ("hud/src/hud.rs", "building UI in code, optional connection to another mechanic by name"),
+    ];
+    let examples: Vec<String> = EXAMPLES.iter().filter(|(f, _)| root.join("mechanics").join(f).exists())
+        .map(|(f, what)| format!("- mechanics/{f}: {what}")).collect();
+    let examples = if examples.is_empty() { String::new() } else { format!("\nWorking code to read before writing (same rules, known to compile):\n{}", examples.join("\n")) };
     Ok(format!(
         "Created the {name} mechanic and registered it in rust/src/lib.rs:\n{}\nNext: put the logic in mechanics/{id}/src/{node_mod}.rs, replace the example `speed` dial in tuning.rs (and tuning.tres) with the real values, \
-         build_rust, then fill in HOW_IT_WORKS.md together with the creator. Other mechanics' code is reachable as crate::<id>::... (e.g. crate::stats::find_stats).",
+         build_rust, then fill in HOW_IT_WORKS.md together with the creator. Other mechanics' code is reachable as crate::<id>::... (e.g. crate::stats::find_stats).{examples}",
         list.join("\n")))
 }
 

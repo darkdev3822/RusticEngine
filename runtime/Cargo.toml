@@ -1,0 +1,19 @@
+[package]
+name = "ember-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Runs Ember (or any Qwen-style GGUF model) inside RusticEngine: a tiny local server speaking the subset of Ollama's /api/chat that rustic-agent uses."
+license = "GPL-3.0-only"
+
+[dependencies]
+llama-cpp-2 = { version = "=0.1.161", default-features = false, features = ["openmp"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[features]
+default = []
+cuda = ["llama-cpp-2/cuda"]
+vulkan = ["llama-cpp-2/vulkan"]
+
+[profile.release]
+strip = true
+lto = "thin"

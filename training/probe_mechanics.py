@@ -7,6 +7,11 @@ import json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 models = sys.argv[1:]
 AGENT = os.path.expanduser("~/rustic-engine/engine/bin/rustic-agent")
+
+
+def model_args(model):
+    """`local:NAME` runs the model in RusticEngine's built-in runtime instead of Ollama."""
+    return ["--provider", "local", "--model", model[6:]] if model.startswith("local:") else ["--model", model]
 BASE = os.path.expanduser("~/rustic-engine/sandbox/gen/base")
 MECH = os.path.expanduser("~/rustic-engine/engine/modules/rustic/mechanics")
 NAMES = {"first_person": "First-Person Controller", "third_person": "Third-Person Controller", "stats": "Character Stats",
@@ -15,7 +20,7 @@ def ctx(mid):
     return f"in the Mechanics tab, looking at the {NAMES[mid]} mechanic (res://mechanics/{mid}, ...)"
 # (mechanic, mode, question, any of these must appear, may_change_code, must_create)
 PROBES = [
-    ("first_person", "learning", "the player feels really slow", ["walk_speed"], False, None),
+    ("first_person", "learning", "the player feels really slow", ["walk_speed", "walk speed"], False, None),
     ("first_person", "learning", "jumping feels floaty, like on the moon", ["gravity", "fall_gravity_multiplier"], False, None),
     ("first_person", "learning", "Explain the First-Person Controller mechanic to me (res://mechanics/first_person). Start with the idea, not the code.", ["delta"], False, None),
     ("third_person", "learning", "the character turns way too slowly when I change direction", ["turn_speed", "turn speed"], False, None),
@@ -34,18 +39,23 @@ for model in models:
         lib = Path(d + "/p/rust/src/lib.rs")
         lib.write_text(lib.read_text() + "".join(f'\n#[path = "../../mechanics/{m}/src/mod.rs"]\nmod {m};' for m in NAMES) + "\n")
         before = {str(p): p.read_text() for p in Path(d + "/p/mechanics").rglob("*.rs")}
-        p = subprocess.Popen([AGENT, "--project", d + "/p", "--model", model, "--mode", mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        p = subprocess.Popen([AGENT, "--project", d + "/p", *model_args(model), "--mode", mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         p.stdin.write(json.dumps({"type": "user", "text": q, "context": ctx(mid)}) + "\n")
         p.stdin.flush()
-        tools, text = [], ""
+        tools, text, build_ok = [], "", None
         try:
             for line in p.stdout:
                 v = json.loads(line)
                 if v["type"] == "tool_start":
                     tools.append(v["name"])
+                elif v["type"] == "tool_end" and v["name"] == "build_rust":
+                    build_ok = v["ok"]
                 elif v["type"] == "text":
                     text += v["delta"]
-                elif v["type"] in ("done", "error"):
+                elif v["type"] == "error":
+                    text += "[ERROR] " + str(v.get("message", v))
+                    break
+                elif v["type"] == "done":
                     break
         finally:
             p.kill()
@@ -55,9 +65,9 @@ for model in models:
         named = any(w in low for w in want) if want else True
         ok = named and (may_code or not code_changed) and "</think>" not in text
         if must_create:
-            ok = ok and any(must_create in c for c in created) and "mechanic" in tools
+            ok = ok and any(must_create in c for c in created) and "mechanic" in tools and build_ok is True
         passed += ok
-        print(f"{model:22s} {'OK ' if ok else '-- '} named={named!s:5} code_changed={code_changed!s:5} created={created} tools={tools[:6]}  {q[:50]}", flush=True)
+        print(f"{model:22s} {'OK ' if ok else '-- '} named={named!s:5} code_changed={code_changed!s:5} created={created} build={build_ok} tools={tools[:6]}  {q[:50]}", flush=True)
         if not ok or os.environ.get("PROBE_ALL"):
             print(f"    reply: {' '.join(text.split())[-400:]}", flush=True)
         shutil.rmtree(d)

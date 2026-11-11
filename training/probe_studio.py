@@ -12,6 +12,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import collab  # noqa: E402
 
 AGENT = os.path.expanduser("~/rustic-engine/engine/bin/rustic-agent")
+
+
+def model_args(model):
+    """`local:NAME` runs the model in RusticEngine's built-in runtime instead of Ollama."""
+    return ["--provider", "local", "--model", model[6:]] if model.startswith("local:") else ["--model", model]
 BASE = os.path.expanduser("~/rustic-engine/sandbox/gen/base")
 SC = collab.SC
 FENCE = collab.rmodel(*collab.box(0.2, 1.2, 0.2), ["#a0784a"] * 6)
@@ -133,7 +138,7 @@ for model in models:
             Path(d + "/p/assets/sounds").mkdir(parents=True, exist_ok=True)
             Path(d + f"/p/assets/sounds/{name}.rsfx").write_text(src)
             ctx = SC.sfx_ctx(name, src)
-        p = subprocess.Popen([AGENT, "--project", d + "/p", "--model", model, "--mode", "learning"],
+        p = subprocess.Popen([AGENT, "--project", d + "/p", *model_args(model), "--mode", "learning"],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         p.stdin.write(json.dumps({"type": "user", "text": q, "context": ctx}) + "\n")
         p.stdin.flush()
@@ -145,7 +150,10 @@ for model in models:
                     tools.append(v["name"])
                 elif v["type"] == "text":
                     text += v["delta"]
-                elif v["type"] in ("done", "error"):
+                elif v["type"] == "error":
+                    text += "[ERROR] " + str(v.get("message", v))
+                    break
+                elif v["type"] == "done":
                     break
         finally:
             p.kill()

@@ -53,7 +53,125 @@ pub fn chat(
     match cfg.provider.as_str() {
         "anthropic" => anthropic(cfg, system, history, tools, stop, on_text),
         "openai" => openai(cfg, system, history, tools, stop, on_text),
+        "local" => {
+            let local = local::ensure(cfg)?;
+            ollama(&local, system, history, tools, stop, on_text)
+        }
         _ => ollama(cfg, system, history, tools, stop, on_text),
+    }
+}
+
+// ---------------------------------------------------------------- Built-in runtime ("local")
+
+/// Ember (or any Qwen-style GGUF) running inside RusticEngine via the bundled `ember-runtime`,
+/// so creators don't need to install Ollama. `cfg.model` = path to a .gguf file, or empty for
+/// the bundled Ember model. The runtime is started on first use and kept for the session.
+pub mod local {
+    use super::Config;
+    use std::io::{BufRead, BufReader};
+    use std::path::{Path, PathBuf};
+    use std::process::{Child, Command, Stdio};
+    use std::sync::Mutex;
+
+    struct Running { model: PathBuf, ctx: u32, port: u16, child: Child }
+    static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
+
+    fn exe_dir() -> PathBuf {
+        std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default()
+    }
+
+    /// Where the bundled Ember model lives: next to the agent (bin/models/ember.gguf), or
+    /// RUSTIC_EMBER_MODEL for development.
+    pub fn default_model() -> PathBuf {
+        if let Ok(p) = std::env::var("RUSTIC_EMBER_MODEL") { return PathBuf::from(p); }
+        exe_dir().join("models").join("ember.gguf")
+    }
+
+    pub fn ensure(cfg: &Config) -> Result<Config, String> {
+        let model = if cfg.model.trim().is_empty() || cfg.model.starts_with("rustic-ember") {
+            default_model()
+        } else {
+            PathBuf::from(cfg.model.trim())
+        };
+        if !model.is_file() {
+            return Err(if cfg.model.trim().is_empty() || cfg.model.starts_with("rustic-ember") {
+                format!("Ember's built-in model isn't installed (looked for {}).\n\
+                         Pick another model in the AI Guide settings, or put ember.gguf there.", model.display())
+            } else {
+                format!("Couldn't find the model file {}. Pick a .gguf file in the AI Guide settings.", model.display())
+            });
+        }
+        let ctx = if cfg.context > 0 { cfg.context } else { 16384 };
+        let mut guard = RUNNING.lock().map_err(|_| "runtime lock poisoned".to_string())?;
+        if let Some(r) = guard.as_mut() {
+            let alive = matches!(r.child.try_wait(), Ok(None));
+            if alive && r.model == model && r.ctx == ctx {
+                return Ok(local_cfg(cfg, r.port));
+            }
+            let _ = r.child.kill();
+            let _ = r.child.wait();
+            *guard = None;
+        }
+        let runtime = exe_dir().join(if cfg!(windows) { "ember-runtime.exe" } else { "ember-runtime" });
+        if !runtime.is_file() {
+            return Err(format!("The built-in model runtime is missing ({}). Pick Ollama or a cloud model in the AI Guide settings.",
+                               runtime.display()));
+        }
+        // A runtime from an earlier session may still be giving its graphics memory back,
+        // so a failed load is retried a few times before giving up.
+        let mut last_err = String::new();
+        for attempt in 0..4 {
+            if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(1500 * attempt)); }
+            match start(&runtime, &model, ctx) {
+                Ok((child, port)) => {
+                    *guard = Some(Running { model, ctx, port, child });
+                    return Ok(local_cfg(cfg, port));
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        Err(format!("The built-in model couldn't start: {last_err}\n\
+                     If another program is using the graphics card's memory, close it and try again, or lower \
+                     Context in the AI Guide settings."))
+    }
+
+    fn start(runtime: &Path, model: &Path, ctx: u32) -> Result<(Child, u16), String> {
+        let mut cmd = Command::new(runtime);
+        cmd.arg("--model").arg(model)
+            .arg("--ctx").arg(ctx.to_string())
+            .arg("--parent-pid").arg(std::process::id().to_string())
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(target_os = "linux")]
+        unsafe {
+            // Have the kernel stop the runtime the moment this agent dies, even if it's killed,
+            // so the model's graphics memory is freed right away. (Linux sends this when the spawning
+            // *thread* exits: models are called from the agent's main thread, so that's the process.)
+            use std::os::unix::process::CommandExt;
+            unsafe extern "C" { fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32; }
+            const PR_SET_PDEATHSIG: i32 = 1;
+            const SIGTERM: u64 = 15;
+            cmd.pre_exec(|| { prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0); Ok(()) });
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("couldn't run {}: {e}", runtime.display()))?;
+        // First line on stdout: {"ready": true, "port": N, ...} once the model is loaded.
+        let mut line = String::new();
+        let _ = BufReader::new(child.stdout.take().unwrap()).read_line(&mut line);
+        let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap_or_default();
+        if let Some(port) = ready["port"].as_u64() {
+            return Ok((child, port as u16));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let mut err = String::new();
+        if let Some(e) = child.stderr.take() { let _ = std::io::Read::read_to_string(&mut BufReader::new(e), &mut err); }
+        Err(err.trim().lines().last().unwrap_or("it exited without saying why (out of memory?)")
+            .trim_start_matches("ember-runtime: ").to_string())
+    }
+
+    fn local_cfg(cfg: &Config, port: u16) -> Config {
+        Config { provider: "ollama".into(), base_url: format!("http://127.0.0.1:{port}"),
+                 // "rustic-ember" makes the ollama path ask for non-thinking replies, as Ember was trained.
+                 model: "rustic-ember".into(), api_key: String::new(), context: cfg.context }
     }
 }
 
