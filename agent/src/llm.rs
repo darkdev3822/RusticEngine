@@ -80,11 +80,80 @@ pub mod local {
         std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default()
     }
 
-    /// Where the bundled Ember model lives: next to the agent (bin/models/ember.gguf), or
-    /// RUSTIC_EMBER_MODEL for development.
+    /// Where Ember's model lives: RUSTIC_EMBER_MODEL (development), next to the agent
+    /// (bin/models/ember.gguf, for bundles that include it), or the user's data folder, where
+    /// it's downloaded the first time it's needed.
     pub fn default_model() -> PathBuf {
         if let Ok(p) = std::env::var("RUSTIC_EMBER_MODEL") { return PathBuf::from(p); }
-        exe_dir().join("models").join("ember.gguf")
+        let bundled = exe_dir().join("models").join("ember.gguf");
+        if bundled.is_file() { return bundled; }
+        models_dir().join("ember.gguf")
+    }
+
+    /// ~/.local/share/rusticengine/models (Linux), %APPDATA%\RusticEngine\models (Windows),
+    /// ~/Library/Application Support/RusticEngine/models (macOS).
+    pub fn models_dir() -> PathBuf {
+        let home = PathBuf::from(std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default());
+        let base = if cfg!(windows) {
+            std::env::var("APPDATA").map(PathBuf::from).unwrap_or(home.join("AppData/Roaming")).join("RusticEngine")
+        } else if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/RusticEngine")
+        } else {
+            std::env::var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or(home.join(".local/share")).join("rusticengine")
+        };
+        base.join("models")
+    }
+
+    /// Ember's published model (Hugging Face). RUSTIC_EMBER_URL overrides it.
+    const EMBER_URL: &str = "https://huggingface.co/RusticEngine/Ember-8B-GGUF/resolve/main/ember.gguf";
+    /// The picture-reading model and its image encoder (official Qwen release, Apache-2.0).
+    const VISION: [(&str, &str); 2] = [
+        ("Qwen3VL-4B-Instruct-Q4_K_M.gguf", "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf"),
+        ("mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf", "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"),
+    ];
+
+    /// Download `url` to `dest` once, resuming a partial download, reporting progress to the editor
+    /// as {"type":"download","what","done","total"} events.
+    pub fn fetch(url: &str, dest: &Path, what: &str) -> Result<(), String> {
+        if dest.is_file() { return Ok(()); }
+        if let Some(d) = dest.parent() { std::fs::create_dir_all(d).map_err(|e| format!("can't create {}: {e}", d.display()))?; }
+        let part = dest.with_extension("part");
+        let mut have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        let agent = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(20))
+            .timeout_read(std::time::Duration::from_secs(60)).redirects(8).build();
+        let mut req = agent.get(url);
+        if have > 0 { req = req.set("range", &format!("bytes={have}-")); }
+        let resp = match req.call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(416, _)) => { std::fs::rename(&part, dest).map_err(|e| e.to_string())?; return Ok(()); }
+            Err(e) => return Err(format!("couldn't download {what}: {e}")),
+        };
+        if resp.status() == 200 { have = 0; } // the server ignored the resume request: start over
+        let len: u64 = resp.header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let total = have + len;
+        let mut file = std::fs::OpenOptions::new().create(true).write(true).append(have > 0).truncate(have == 0)
+            .open(&part).map_err(|e| format!("can't write {}: {e}", part.display()))?;
+        let mut reader = resp.into_reader();
+        let mut buf = vec![0u8; 1 << 20];
+        let mut done = have;
+        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(5);
+        loop {
+            let n = std::io::Read::read(&mut reader, &mut buf).map_err(|e| format!("download of {what} interrupted: {e} (it will resume next time)"))?;
+            if n == 0 { break; }
+            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| format!("can't write {what}: {e} (is the disk full?)"))?;
+            done += n as u64;
+            if last.elapsed().as_millis() > 500 {
+                crate::emit(serde_json::json!({"type": "download", "what": what, "done": done, "total": total}));
+                last = std::time::Instant::now();
+            }
+        }
+        if total > 0 && done < total {
+            return Err(format!("download of {what} stopped early ({done} of {total} bytes); it will resume next time"));
+        }
+        drop(file);
+        std::fs::rename(&part, dest).map_err(|e| e.to_string())?;
+        crate::emit(serde_json::json!({"type": "download", "what": what, "done": done, "total": done}));
+        Ok(())
     }
 
     /// The Vulkan build (`ember-runtime`) runs on any graphics card and falls back to the processor.
@@ -103,8 +172,13 @@ pub mod local {
         } else {
             PathBuf::from(cfg.model.trim())
         };
+        let builtin = cfg.model.trim().is_empty() || cfg.model.starts_with("rustic-ember");
+        if builtin && !model.is_file() {
+            let url = std::env::var("RUSTIC_EMBER_URL").unwrap_or_else(|_| EMBER_URL.to_string());
+            fetch(&url, &model, "Ember's model (one time, about 5.5 GB)")?;
+        }
         if !model.is_file() {
-            return Err(if cfg.model.trim().is_empty() || cfg.model.starts_with("rustic-ember") {
+            return Err(if builtin {
                 format!("Ember's built-in model isn't installed (looked for {}).\n\
                          Pick another model in the AI Guide settings, or put ember.gguf there.", model.display())
             } else {
@@ -132,7 +206,7 @@ pub mod local {
         let mut last_err = String::new();
         for attempt in 0..4 {
             if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(1500 * attempt)); }
-            match start(&runtime, &model, ctx) {
+            match start(&runtime, &model, ctx, None) {
                 Ok((child, port)) => {
                     *guard = Some(Running { model, ctx, port, child });
                     return Ok(local_cfg(cfg, port));
@@ -145,8 +219,9 @@ pub mod local {
                      Context in the AI Guide settings."))
     }
 
-    fn start(runtime: &Path, model: &Path, ctx: u32) -> Result<(Child, u16), String> {
+    fn start(runtime: &Path, model: &Path, ctx: u32, mmproj: Option<&Path>) -> Result<(Child, u16), String> {
         let mut cmd = Command::new(runtime);
+        if let Some(m) = mmproj { cmd.arg("--mmproj").arg(m); }
         cmd.arg("--model").arg(model)
             .arg("--ctx").arg(ctx.to_string())
             .arg("--parent-pid").arg(std::process::id().to_string())
@@ -176,6 +251,48 @@ pub mod local {
         if let Some(e) = child.stderr.take() { let _ = std::io::Read::read_to_string(&mut BufReader::new(e), &mut err); }
         Err(err.trim().lines().last().unwrap_or("it exited without saying why (out of memory?)")
             .trim_start_matches("ember-runtime: ").to_string())
+    }
+
+    /// Look at a picture with the built-in vision model. Ember's own runtime is paused first so both
+    /// don't need graphics memory at once; it restarts by itself on Ember's next reply.
+    pub fn describe(mime: &str, b64: &str, question: &str) -> Result<String, String> {
+        let _ = mime;
+        let dir = models_dir();
+        for (name, url) in VISION {
+            fetch(url, &dir.join(name), "the picture-reading model (one time, about 3 GB)")?;
+        }
+        {
+            let mut guard = RUNNING.lock().map_err(|_| "runtime lock poisoned".to_string())?;
+            if let Some(mut r) = guard.take() { let _ = r.child.kill(); let _ = r.child.wait(); }
+        }
+        let runtime = runtime_binary();
+        let (model, mmproj) = (dir.join(VISION[0].0), dir.join(VISION[1].0));
+        let mut last_err = String::new();
+        let mut started = None;
+        for attempt in 0..3 {
+            if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(1500)); }
+            match start(&runtime, &model, 8192, Some(&mmproj)) {
+                Ok(x) => { started = Some(x); break; }
+                Err(e) => last_err = e,
+            }
+        }
+        let Some((mut child, port)) = started else { return Err(format!("The picture-reading model couldn't start: {last_err}")) };
+        let body = serde_json::json!({"model": "vision", "stream": false,
+            "messages": [{"role": "user", "content": question, "images": [b64]}],
+            "options": {"temperature": 0.2, "num_predict": 1200}});
+        let result = super::post(super::agent().post(&format!("http://127.0.0.1:{port}/api/chat")), &body, "the picture-reading model")
+            .and_then(|r| {
+                let mut text = String::new();
+                for line in BufReader::new(r.into_reader()).lines().map_while(Result::ok) {
+                    let v: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+                    if let Some(e) = v["error"].as_str() { return Err(e.to_string()); }
+                    text.push_str(v["message"]["content"].as_str().unwrap_or(""));
+                }
+                Ok(text.trim().to_string())
+            });
+        let _ = child.kill();
+        let _ = child.wait();
+        result
     }
 
     fn local_cfg(cfg: &Config, port: u16) -> Config {
@@ -428,6 +545,7 @@ fn anthropic(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], sto
 /// Ollama uses a separate local vision model; cloud providers use the chosen model itself.
 pub fn describe_image(cfg: &Config, vision_model: &str, mime: &str, b64: &str, question: &str) -> Result<String, String> {
     match cfg.provider.as_str() {
+        "local" => local::describe(mime, b64, question),
         "anthropic" => {
             let body = json!({"model": cfg.model, "max_tokens": 1500, "messages": [{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},

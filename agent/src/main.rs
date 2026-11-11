@@ -39,7 +39,7 @@ const HISTORY_BUDGET_CHARS: usize = 48_000;
 
 static OUT: Mutex<()> = Mutex::new(());
 
-fn emit(v: Value) {
+pub(crate) fn emit(v: Value) {
     let _guard = OUT.lock().unwrap();
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{v}");
@@ -556,7 +556,8 @@ fn main() {
                 .and_then(|d| std::fs::read_dir(d).ok())
                 .and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| {
                     let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    n.starts_with("godot") && n.contains("editor")
+                    // "rusticengine" in release downloads, godot.<platform>.editor.<arch> in development builds.
+                    n == "rusticengine" || n == "rusticengine.exe" || (n.starts_with("godot") && n.contains("editor"))
                 }));
         }
         mcp::serve(project);

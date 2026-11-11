@@ -18,3 +18,4 @@ training/corpus/
 training/data/off_*.jsonl
 runtime/target/
 runtime/target-*/
+dist/
