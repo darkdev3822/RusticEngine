@@ -1,7 +1,7 @@
 //! ember-runtime: runs a GGUF model in-process (llama.cpp) and serves the part of Ollama's
 //! native API that rustic-agent speaks, so Ember works with no separate Ollama install.
 //!
-//!   ember-runtime --model ember.gguf [--port 0] [--ctx 16384] [--gpu-layers 999] [--parent-pid N]
+//!   ember-runtime --model ember.gguf [--port 0] [--ctx 16384] [--gpu-layers N] [--parent-pid N]
 //!
 //! Prints `{"ready": true, "port": N, "model": "..."}` on stdout once the model is loaded.
 //! Endpoints: GET /api/tags, POST /api/chat (streamed NDJSON, tools via Qwen-style <tool_call> tags).
@@ -30,13 +30,13 @@ struct Args {
     model: PathBuf,
     port: u16,
     ctx: u32,
-    gpu_layers: u32,
+    gpu_layers: Option<u32>,
     parent_pid: Option<u32>,
     verbose: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { model: PathBuf::new(), port: 0, ctx: 16384, gpu_layers: 999, parent_pid: None, verbose: false };
+    let mut a = Args { model: PathBuf::new(), port: 0, ctx: 16384, gpu_layers: None, parent_pid: None, verbose: false };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut val = || it.next().ok_or(format!("{k} needs a value"));
@@ -44,7 +44,7 @@ fn parse_args() -> Result<Args, String> {
             "--model" => a.model = PathBuf::from(val()?),
             "--port" => a.port = val()?.parse().map_err(|_| "--port must be a number")?,
             "--ctx" => a.ctx = val()?.parse().map_err(|_| "--ctx must be a number")?,
-            "--gpu-layers" => a.gpu_layers = val()?.parse().map_err(|_| "--gpu-layers must be a number")?,
+            "--gpu-layers" => a.gpu_layers = Some(val()?.parse().map_err(|_| "--gpu-layers must be a number")?),
             "--parent-pid" => a.parent_pid = Some(val()?.parse().map_err(|_| "--parent-pid must be a number")?),
             "--verbose" => a.verbose = true,
             // Print the prompt a chat request would produce, without loading any model (for checking the template).
@@ -66,7 +66,7 @@ fn parse_args() -> Result<Args, String> {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                println!("ember-runtime --model FILE.gguf [--port 0] [--ctx 16384] [--gpu-layers 999] [--parent-pid N] [--verbose]");
+                println!("ember-runtime --model FILE.gguf [--port 0] [--ctx 16384] [--gpu-layers N] [--parent-pid N] [--verbose]");
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument {other}")),
@@ -98,17 +98,32 @@ fn main() {
 fn run(args: Args) -> Result<(), String> {
     let mut backend = LlamaBackend::init().map_err(|e| e.to_string())?;
     if !args.verbose { backend.void_logs(); }
-    let mparams = LlamaModelParams::default().with_n_gpu_layers(args.gpu_layers);
-    let model = LlamaModel::load_from_file(&backend, &args.model, &mparams)
-        .map_err(|e| format!("couldn't load {}: {e}", args.model.display()))?;
-    let n_ctx = args.ctx.min(model.n_ctx_train()).max(2048);
     let threads = std::thread::available_parallelism().map(|n| n.get() as i32).unwrap_or(4).clamp(1, 16);
-    let cparams = LlamaContextParams::default()
-        .with_n_ctx(NonZeroU32::new(n_ctx))
+    let base_cparams = || LlamaContextParams::default()
         .with_n_batch(512)
         .with_n_threads(threads)
         .with_n_threads_batch(threads);
-    let mut ctx = model.new_context(&backend, cparams).map_err(|e| format!("couldn't create context: {e}"))?;
+    let mut mparams = std::pin::pin!(LlamaModelParams::default());
+    let mut n_ctx = args.ctx.max(2048);
+    if let Some(n) = args.gpu_layers {
+        mparams.set(LlamaModelParams::default().with_n_gpu_layers(n));
+    } else {
+        // Fit the model into the memory that's actually free right now (a browser or game may be
+        // using some): first by shrinking the context (not below 8192), then by keeping some layers
+        // on the processor. Leaves a little headroom on each graphics card.
+        let path = std::ffi::CString::new(args.model.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        let mut cp = base_cparams().with_n_ctx(None);
+        let mut margins = vec![384usize << 20; llama_cpp_2::max_devices().max(1)];
+        match mparams.as_mut().fit_params(&path, &mut cp, &mut margins, 8192.min(n_ctx), 4) {
+            Ok(fit) => n_ctx = n_ctx.min(fit.n_ctx.max(2048)),
+            Err(e) => if args.verbose { eprintln!("ember-runtime: couldn't fit to free memory ({e:?}); trying the defaults"); },
+        }
+    }
+    let model = LlamaModel::load_from_file(&backend, &args.model, &mparams)
+        .map_err(|e| format!("couldn't load {}: {e}", args.model.display()))?;
+    n_ctx = n_ctx.min(model.n_ctx_train());
+    let mut ctx = model.new_context(&backend, base_cparams().with_n_ctx(NonZeroU32::new(n_ctx)))
+        .map_err(|e| format!("not enough memory for the model's working space ({n_ctx} tokens of context): {e}. Close other programs using the graphics card or lower Context in the AI Guide settings."))?;
 
     let listener = TcpListener::bind(("127.0.0.1", args.port)).map_err(|e| format!("couldn't listen: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();

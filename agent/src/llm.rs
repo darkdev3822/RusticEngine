@@ -87,6 +87,16 @@ pub mod local {
         exe_dir().join("models").join("ember.gguf")
     }
 
+    /// The Vulkan build (`ember-runtime`) runs on any graphics card and falls back to the processor.
+    /// An optional CUDA build (`ember-runtime-cuda`) is ~10% faster on Nvidia cards, so it's preferred
+    /// when it's installed and an Nvidia driver is loaded.
+    fn runtime_binary() -> PathBuf {
+        let exe = |n: &str| exe_dir().join(if cfg!(windows) { format!("{n}.exe") } else { n.to_string() });
+        let cuda = exe("ember-runtime-cuda");
+        let nvidia = if cfg!(target_os = "linux") { Path::new("/proc/driver/nvidia").exists() } else { cfg!(windows) };
+        if std::env::var_os("RUSTIC_NO_CUDA").is_none() && nvidia && cuda.is_file() { cuda } else { exe("ember-runtime") }
+    }
+
     pub fn ensure(cfg: &Config) -> Result<Config, String> {
         let model = if cfg.model.trim().is_empty() || cfg.model.starts_with("rustic-ember") {
             default_model()
@@ -112,7 +122,7 @@ pub mod local {
             let _ = r.child.wait();
             *guard = None;
         }
-        let runtime = exe_dir().join(if cfg!(windows) { "ember-runtime.exe" } else { "ember-runtime" });
+        let runtime = runtime_binary();
         if !runtime.is_file() {
             return Err(format!("The built-in model runtime is missing ({}). Pick Ollama or a cloud model in the AI Guide settings.",
                                runtime.display()));
