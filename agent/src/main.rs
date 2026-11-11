@@ -16,6 +16,7 @@ mod examples;
 mod paths;
 mod llm;
 mod mcp;
+mod mechanic_kinds;
 mod mechanics;
 mod studio;
 mod tools;
