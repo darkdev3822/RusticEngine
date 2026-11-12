@@ -254,7 +254,9 @@ fn mechanic_in_context(context: &str, text: &str) -> Option<String> {
 /// "Make me a double jump", "add a dash": the creator wants something built (full tool loop).
 fn wants_build(text: &str) -> bool {
     let t = text.to_lowercase();
-    ["make me", "create", "build", "add a", "add an", "new mechanic", "write", "implement", "code a", "make a"].iter().any(|w| t.contains(w))
+    ["make me", "create", "build", "add a", "add an", "new mechanic", "write", "implement", "code a", "make a",
+     "i need a", "i want a", "i'd like a", "give me a", "can you make", "could you make", "let's make", "lets make", "mechanic please"]
+        .iter().any(|w| t.contains(w))
 }
 
 fn wants_explanation(text: &str) -> bool {
@@ -770,6 +772,15 @@ mod guard_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_build_requests() {
+        assert!(wants_build("I need a checkpoint mechanic: touching a checkpoint saves where the player respawns"));
+        assert!(wants_build("new mechanic please: wall jump"));
+        assert!(wants_build("I want a dash"));
+        assert!(!wants_build("the player feels really slow"));
+        assert!(!wants_build("why can't I pick up the stone?"));
+    }
 
     #[test]
     fn finds_named_keys() {
