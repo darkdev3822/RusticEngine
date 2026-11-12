@@ -59,6 +59,19 @@ fn msg_len(m: &Msg) -> usize {
     }
 }
 
+/// A mechanic's logic files (every .rs in its src/ except mod.rs and tuning.rs), to tell whether the
+/// starting code was actually changed.
+fn logic_snapshot(src: &std::path::Path) -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = std::fs::read_dir(src).into_iter().flatten().flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            (name.ends_with(".rs") && name != "mod.rs" && name != "tuning.rs")
+                .then(|| (name, std::fs::read_to_string(e.path()).unwrap_or_default()))
+        }).collect();
+    v.sort();
+    v
+}
+
 /// Drop the oldest exchanges until the history fits. Always cut at a user message, so tool calls
 /// and their results stay paired.
 fn trim_history(history: &mut Vec<Msg>) {
@@ -356,6 +369,7 @@ impl Session {
         // A new mechanic is only a skeleton until its src/ gets real logic.
         let mut scaffolded: Option<String> = None;
         let mut logic_written = false;
+        let mut scaffold_snapshot: Vec<(String, String)> = vec![];
         let mut scaffold_nudges = 0u8;
         // In the Studio the open file is already inspected above, so Ember gets one round of tools at most,
         // and its reply is held back and cleaned (no reasoning tags, no "let me look again", no offers to do the art).
@@ -488,11 +502,13 @@ impl Session {
                 let touched = call.args["path"].as_str().unwrap_or("");
                 if call.name == "mechanic" && call.args["action"].as_str() == Some("new") && outcome.ok {
                     scaffolded = call.args["id"].as_str().map(|s| s.trim().to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
+                    if let Some(id) = &scaffolded {
+                        scaffold_snapshot = logic_snapshot(&self.project.root.join("mechanics").join(id).join("src"));
+                    }
                 }
                 if let Some(id) = &scaffolded {
-                    if outcome.ok && (call.name == "edit_file" || call.name == "write_file") && touched.contains(&format!("mechanics/{id}/src/")) {
-                        logic_written = true;
-                    }
+                    // Written = its logic files differ from the starting code (edits to tuning or docs alone don't count).
+                    logic_written = logic_snapshot(&self.project.root.join("mechanics").join(id).join("src")) != scaffold_snapshot;
                 }
                 if outcome.files_changed && (call.name == "new_rust_node" || touched.ends_with(".rs") || touched.ends_with("Cargo.toml")) {
                     rust_dirty = true;
