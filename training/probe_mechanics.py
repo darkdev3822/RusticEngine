@@ -34,7 +34,8 @@ def main():
     for model in models:
         passed = 0
         for mid, mode, q, want, may_code, must_create in PROBES:
-            d = tempfile.mkdtemp()
+            work = Path(__file__).parent / "probe_tmp"; work.mkdir(exist_ok=True)  # on disk: /tmp is RAM here
+            d = tempfile.mkdtemp(dir=work)
             shutil.copytree(BASE, d + "/p")
             shutil.copytree(MECH, d + "/p/mechanics", ignore=shutil.ignore_patterns("target"))
             lib = Path(d + "/p/rust/src/lib.rs")
