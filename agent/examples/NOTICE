@@ -1,7 +1,9 @@
 examples.jsonl contains code excerpts from the godot-rust project (https://github.com/godot-rust):
 the book, demo-projects and gdext's integration tests. They are licensed under the Mozilla Public
 License 2.0 (https://mozilla.org/MPL/2.0/). Each entry's "src" field names the file it came from.
-Rebuild with training/build_examples.py.
+Entries whose "src" starts with "godot-demo-projects" come from the Godot demo projects
+(https://github.com/godotengine/godot-demo-projects), MIT License, Copyright (c) Juan Linietsky,
+Ariel Manzur and contributors. Rebuild with training/build_examples.py.
 
 Entries whose "src" starts with "github" come from open-source projects found by
 training/crawl_github.py. Only permissively licensed repos are used, and the license is named in
@@ -11,3 +13,12 @@ Blender Manual excerpts (design.jsonl entries with "kind": "manual")
   The Blender Manual by the Blender Documentation Team (https://projects.blender.org/blender/documentation),
   https://docs.blender.org/manual/, licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
   Text was converted from reStructuredText and shortened; each entry links its source page.
+
+Wikipedia excerpts (design.jsonl entries with "kind": "game")
+  Short excerpts of Wikipedia articles about games, from Wikipedia, The Free Encyclopedia
+  (https://en.wikipedia.org), licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+  Each entry's "url" links its article, whose history lists the authors. Text was shortened.
+
+Design patterns (design.jsonl entries with "kind": "pattern")
+  The code in these entries is RusticEngine's own godot-rust code (GPL-3.0), written to show a design
+  idea. The "source" field credits the game whose design inspired it; no code from those games is included.
