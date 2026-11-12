@@ -72,6 +72,28 @@ fn logic_snapshot(src: &std::path::Path) -> Vec<(String, String)> {
     v
 }
 
+/// The key a request names for an ability: "pressing Shift", "on Q", "with the F key".
+fn named_key(text: &str) -> Option<String> {
+    let t = format!(" {} ", text.to_lowercase().replace(|c: char| !c.is_alphanumeric(), " "));
+    for k in ["shift", "ctrl", "control", "alt", "space", "tab"] {
+        if t.contains(&format!(" {k} ")) && mechanic_kinds::key_const(k).is_some() {
+            return Some(k.to_string());
+        }
+    }
+    // Single letters only right after a cue word ("press q", "the f key"), never on their own.
+    for cue in ["press ", "pressing ", "hit ", "hold ", "on ", "the "] {
+        for (i, _) in t.match_indices(cue) {
+            let rest = &t[i + cue.len()..];
+            let word: String = rest.chars().take_while(|c| c.is_alphanumeric()).collect();
+            let after = rest[word.len()..].trim_start();
+            if word.len() == 1 && mechanic_kinds::key_const(&word).is_some() && (cue != "the " || after.starts_with("key")) {
+                return Some(word);
+            }
+        }
+    }
+    None
+}
+
 /// Drop the oldest exchanges until the history fits. Always cut at a user message, so tool calls
 /// and their results stay paired.
 fn trim_history(history: &mut Vec<Msg>) {
@@ -508,7 +530,14 @@ impl Session {
                 }
                 break;
             }
-            for call in calls {
+            for mut call in calls {
+                // A key the creator named ("pressing Shift") but the model left out of `mechanic` new.
+                if call.name == "mechanic" && call.args["action"].as_str() == Some("new")
+                    && call.args["key"].as_str().unwrap_or("").trim().is_empty() {
+                    if let Some(k) = named_key(text) {
+                        call.args["key"] = json!(k);
+                    }
+                }
                 let summary = tools::summary(&call.name, &call.args);
                 emit(json!({"type": "tool_start", "name": call.name, "summary": summary}));
                 let outcome = if self.stop.load(Ordering::Relaxed) {
@@ -741,6 +770,15 @@ mod guard_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_named_keys() {
+        assert_eq!(named_key("a dash. Pressing Shift gives a burst").as_deref(), Some("shift"));
+        assert_eq!(named_key("dash when I press Q").as_deref(), Some("q"));
+        assert_eq!(named_key("use the F key to glide").as_deref(), Some("f"));
+        assert_eq!(named_key("make a dash with a cooldown"), None);
+        assert_eq!(named_key("a door on the wall"), None);
+    }
 
     #[test]
     fn trim_history_ends_with_one_huge_exchange() {
