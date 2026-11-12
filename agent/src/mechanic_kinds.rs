@@ -149,7 +149,7 @@ wall jump = when body.is_on_wall(), push along body.get_wall_normal() plus up. C
     Kind {
         id: "trigger",
         group: "trigger",
-        keywords: &["trigger", "zone", "area", "pressure plate", "goal", "touch"],
+        keywords: &["trigger", "pressure plate", "goal", "finish line"],
         uses: &[],
         base: "Area3D",
         when: "something that happens when the player TOUCHES or ENTERS a place or object: coin/pickup, door, checkpoint, kill zone, pressure plate, goal",
@@ -1496,13 +1496,15 @@ pub fn pick(kind: &str, base: &str, hint: &str) -> Option<&'static Kind> {
     if kind == "custom" {
         return None;
     }
+    let is_default = |k: &Kind| KINDS.iter().find(|f| f.group == k.group).map(|f| f.id) == Some(k.id);
     let words = hint.to_lowercase().replace('_', " ");
     let matches = |k: &Kind| k.keywords.iter().any(|w| words.contains(w));
     if let Some(k) = KINDS.iter().find(|k| k.id == kind) {
         // The model sometimes names the wrong variant (score for a health-regen ask): if the request's words
         // point to another variant and none of this one's do, trust the words.
         if !matches(k) {
-            if let Some(better) = KINDS.iter().find(|o| o.id != k.id && matches(o)) {
+            if let Some(better) = KINDS.iter().filter(|o| !is_default(o)).find(|o| o.id != k.id && matches(o))
+                .or_else(|| KINDS.iter().find(|o| o.id != k.id && matches(o))) {
                 return Some(better);
             }
         }
@@ -1519,9 +1521,13 @@ pub fn pick(kind: &str, base: &str, hint: &str) -> Option<&'static Kind> {
     });
     let hint = hint.to_lowercase().replace('_', " ");
     let by_words = |k: &&Kind| k.keywords.iter().any(|w| hint.contains(w));
+    // Specific variants first: the family's generic example only when nothing more specific matches.
+    let specific = |k: &&Kind| !is_default(k);
     match group {
-        Some(g) => KINDS.iter().filter(|k| k.group == g).find(by_words).or_else(|| KINDS.iter().find(|k| k.group == g)),
-        None => KINDS.iter().find(by_words),
+        Some(g) => KINDS.iter().filter(|k| k.group == g).filter(specific).find(by_words)
+            .or_else(|| KINDS.iter().filter(|k| k.group == g).find(by_words))
+            .or_else(|| KINDS.iter().find(|k| k.group == g)),
+        None => KINDS.iter().filter(specific).find(by_words).or_else(|| KINDS.iter().find(by_words)),
     }
 }
 
@@ -1561,5 +1567,7 @@ mod tests {
         assert_eq!(id(pick("", "Node", "dash Dash quick burst")), "dash");
         assert_eq!(id(pick("custom", "Node", "dash")), "none");
         assert!(exact_fit("score", "", "score Score points"));
+        assert_eq!(id(pick("trigger", "", "checkpoint Checkpoint Touching a checkpoint saves where the player respawns")), "checkpoint");
+        assert_eq!(id(pick("trigger", "", "goal Goal flag reaching the goal ends the level")), "trigger");
     }
 }
