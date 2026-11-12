@@ -2,7 +2,6 @@ agent/target/
 branding/export/
 !branding/*.png
 build.log
-engine/
 knowledge/*/target/
 *.png
 sandbox/
@@ -26,3 +25,4 @@ training/probe_tmp/
 build_*.log
 training/probe_*.log
 training/probe_runs_*.log
+__pycache__/
