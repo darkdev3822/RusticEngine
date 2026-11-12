@@ -136,7 +136,8 @@ pub fn definitions() -> Vec<ToolDef> {
                 "name": {"type": "string", "description": "new: display name, e.g. Double Jump"},
                 "summary": {"type": "string", "description": "new: one sentence about what it does"},
                 "node": {"type": "string", "description": "new: the node class in PascalCase (default: from the id)"},
-                "kind": {"type": "string", "enum": ["player_ability", "trigger", "mover", "timer", "custom"], "description": "new: what sort of mechanic; each kind starts as WORKING example code you then adapt. player_ability = something the player does on a key (dash, double/wall jump, glide); trigger = something that happens when the player touches/enters it (coin, door, checkpoint, kill zone); mover = something that moves by itself (patrolling enemy); timer = rules over time with no body (countdown, regen, score); custom = empty node of `base`"},
+                "kind": {"type": "string", "enum": ["dash", "double_jump", "wall_jump", "glide", "pickup_counter", "door", "checkpoint", "trigger", "patrol", "chase", "countdown", "regen", "score", "custom"], "description": "new: the closest starting point; each is WORKING code for that mechanic, which you then adapt. Player abilities (child of the player): dash, double_jump, wall_jump, glide. Touch/enter: pickup_counter (coins, gems), door, checkpoint (respawn after falling), trigger (anything else on touch). Moving by itself: patrol, chase. No body: countdown (timer), regen (health regeneration, uses stats), score. custom = empty node of `base` (only if nothing fits)"},
+                "key": {"type": "string", "description": "new, for dash: the key that triggers it if the creator named one, e.g. Shift, Q, F (jump abilities use the jump key)"},
                 "base": {"type": "string", "description": "new, only for kind custom: Godot base class, e.g. Node, Node3D, Control"},
                 "uses": {"type": "array", "items": {"type": "string"}, "description": "new: ids of mechanics it needs, e.g. [\"stats\"]"}},
                 "required": ["action"]}) },
@@ -277,7 +278,7 @@ impl Project {
                     "info" => match crate::mechanics::info(&self.root, &s("id")) { Ok(t) => ok(t), Err(e) => fail(e) },
                     "new" => {
                         let uses: Vec<String> = args["uses"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
-                        match crate::mechanics::scaffold(&self.root, &s("id"), &s("name"), &s("summary"), &s("node"), &s("base"), &s("kind"), &uses) {
+                        match crate::mechanics::scaffold(&self.root, &s("id"), &s("name"), &s("summary"), &s("node"), &s("base"), &s("kind"), &s("key"), &uses) {
                             Ok(t) => Outcome { files_changed: true, ..ok(t) },
                             Err(e) => fail(e),
                         }

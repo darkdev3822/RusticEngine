@@ -511,6 +511,12 @@ impl Session {
                     scaffolded = call.args["id"].as_str().map(|s| s.trim().to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
                     if let Some(id) = &scaffolded {
                         scaffold_snapshot = logic_snapshot(&self.project.root.join("mechanics").join(id).join("src"));
+                        let a = |k: &str| call.args[k].as_str().unwrap_or("").to_string();
+                        let hint = format!("{} {} {} {}", a("id"), a("name"), a("summary"), text);
+                        // A variant that already is what they asked for may stay as it is.
+                        if mechanic_kinds::exact_fit(&a("kind"), &a("base"), &hint) {
+                            scaffold_snapshot.clear();
+                        }
                     }
                 }
                 if let Some(id) = &scaffolded {

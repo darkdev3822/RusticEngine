@@ -5,9 +5,10 @@ and the project builds at the end (checked independently with cargo, not just Em
 Usage: python3 probe_new_mechanic.py MODEL [MODEL...]   (PROBE_ONLY=dash  PROBE_KEEP=1 keeps projects)
 Writes failing build errors to /tmp-free location: training/probe_runs/<model>/<id>.txt
 """
-import json, os, shutil, subprocess, sys, tempfile, time
+import json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 from probe_mechanics import model_args, AGENT, BASE, MECH, NAMES
+from score_new_mechanic import NEEDS
 
 ASKS = [  # (key, ask)
     ("dash", "make me a new mechanic: a dash. Pressing Shift gives the first-person player a quick burst forward, with a cooldown"),
@@ -76,14 +77,19 @@ def run(model, key, ask):
     # The logic must actually be written: some edit after the mechanic was created (a bare scaffold also builds).
     wrote = "mechanic" in tools and any(t in ("edit_file", "write_file") for t in tools[tools.index("mechanic") + 1:])
     unchanged = bool(created) and is_template(d + "/p", created[0])
-    ok = bool(created) and wrote and ok_build and not unchanged
+    # Pass = it builds AND its code does what was asked (score_new_mechanic.NEEDS). A starting variant that
+    # already is the asked mechanic is fine unchanged; an unrelated example left as-is fails the check.
+    code = "\n".join(f.read_text() for c in created for f in Path(d + f"/p/mechanics/{c}/src").glob("*.rs")
+                     if f.name not in ("mod.rs", "tuning.rs"))
+    does = bool(code) and all(re.search(pat, code, re.I) for pat in NEEDS[key][1])
+    ok = bool(created) and ok_build and does
     errs = [l for l in r.stderr.splitlines() if l.startswith(("error", "src/", "../")) or "error[" in l]
     od = OUT / model.replace(":", "_").replace("/", "_"); od.mkdir(parents=True, exist_ok=True)
     (od / f"{key}.txt").write_text(f"ASK: {ask}\nTOOLS: {tools}\nBUILDS: {builds}\nCREATED: {created}\nFINAL BUILD: {ok_build}\n\n"
                                    + r.stderr[-6000:] + "\n\nREPLY:\n" + text[-3000:] + "\n\nFILES:\n"
                                    + "".join(f"--- {f}\n{f.read_text()}\n" for c in created for f in sorted(Path(d + f"/p/mechanics/{c}").rglob("*.rs"))))
     print(f"{model:20s} {'OK ' if ok else '-- '} {key:11s} created={created} builds={builds} final={ok_build} "
-          f"wrote={wrote} template_unchanged={unchanged} {int(time.time()-t0)}s tools={len(tools)} {(errs[:2] if not ok_build else '')}", flush=True)
+          f"does_it={does} wrote={wrote} template_unchanged={unchanged} {int(time.time()-t0)}s tools={len(tools)} {(errs[:2] if not ok_build else '')}", flush=True)
     if os.environ.get("PROBE_KEEP"): print("    kept", d)
     else: shutil.rmtree(d)
     return ok

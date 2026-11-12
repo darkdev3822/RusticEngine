@@ -202,7 +202,7 @@ fn snake(s: &str) -> String {
 }
 
 /// Create a new mechanic folder in the standard shape and register its code in lib.rs.
-pub fn scaffold(root: &Path, id: &str, name: &str, summary: &str, node: &str, base: &str, kind: &str, uses: &[String]) -> Result<String, String> {
+pub fn scaffold(root: &Path, id: &str, name: &str, summary: &str, node: &str, base: &str, kind: &str, key: &str, uses: &[String]) -> Result<String, String> {
     let id: String = id.trim().to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     if id.is_empty() || !id.chars().next().unwrap().is_ascii_alphabetic() {
         return Err("Give the mechanic an id in snake_case, like stamina or double_jump.".into());
@@ -211,6 +211,15 @@ pub fn scaffold(root: &Path, id: &str, name: &str, summary: &str, node: &str, ba
     if dir.exists() {
         return Err(format!("mechanics/{id} already exists. Use mechanic info to see it, then edit its files."));
     }
+    let kind = crate::mechanic_kinds::pick(kind, base, &format!("{id} {name} {summary}"));
+    // The starting code may need another mechanic (regen uses Character Stats).
+    let mut uses: Vec<String> = uses.to_vec();
+    for u in kind.map(|k| k.uses).unwrap_or(&[]) {
+        if !uses.iter().any(|x| x == u) {
+            uses.push(u.to_string());
+        }
+    }
+    let uses = &uses[..];
     let lib_path = root.join("rust/src/lib.rs");
     let Ok(lib) = fs::read_to_string(&lib_path) else { return Err("rust/src/lib.rs is missing. Is this a Rust project?".into()) };
     for u in uses {
@@ -219,7 +228,6 @@ pub fn scaffold(root: &Path, id: &str, name: &str, summary: &str, node: &str, ba
         }
     }
     let node = if node.trim().is_empty() { pascal(&id) } else { pascal(node) };
-    let kind = crate::mechanic_kinds::pick(kind, base);
     let base = match kind {
         Some(k) => k.base.to_string(),
         None if base.trim().is_empty() => "Node".to_string(),
@@ -370,10 +378,13 @@ TODO: what problem this solves for the player, in plain words.
         for (rel, content) in files.iter_mut() {
             if *rel == format!("src/{node_mod}.rs") {
                 *content = fill(k.node_src);
+                if let Some(c) = crate::mechanic_kinds::key_const(key) {
+                    *content = content.replace("const DEFAULT_KEY: Key = Key::E;", &format!("const DEFAULT_KEY: Key = Key::{c};"));
+                }
             } else if rel == "tuning.tres" {
                 *content = format!("[gd_resource type=\"{tuning}\" format=3]\n\n[resource]\n{}", k.tres);
             } else if rel == "sandbox.tscn" {
-                *content = sandbox_for_kind(k.id, &node, has_player);
+                *content = sandbox_for_kind(k, &node, has_player);
             }
         }
     }
@@ -417,29 +428,26 @@ TODO: what problem this solves for the player, in plain words.
 
 /// The test room for a templated kind: the 3D room, a player (if the First-Person Controller is in the
 /// project) and the mechanic placed where it can be tried.
-fn sandbox_for_kind(kind: &str, node: &str, has_player: bool) -> String {
+fn sandbox_for_kind(k: &crate::mechanic_kinds::Kind, node: &str, has_player: bool) -> String {
     let room = sandbox_scene(node, "Node3D");
     // The 3D room ends with its Camera3D and the node; rebuild that tail per kind.
-    let head = room.split("[node name=\"Camera3D\"").next().unwrap_or(&room).to_string();
+    let mut out = room.split("[node name=\"Camera3D\"").next().unwrap_or(&room).to_string();
     let camera = "[node name=\"Camera3D\" type=\"Camera3D\" parent=\".\"]\ntransform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 4, 8)\n\n";
     let player = "[node name=\"Player\" type=\"FirstPersonController\" parent=\".\"]\ntransform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 6)\n\n";
-    let mut out = head;
-    match kind {
-        "player_ability" if has_player => {
-            out += player;
-            out += &format!("[node name=\"{node}\" type=\"{node}\" parent=\"Player\"]\n");
-        }
-        "trigger" => {
-            out += if has_player { player } else { camera };
-            out += &format!("[node name=\"{node}\" type=\"{node}\" parent=\".\"]\ntransform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)\n");
-        }
-        "mover" => {
-            out += if has_player { player } else { camera };
-            out += &format!("[node name=\"{node}\" type=\"{node}\" parent=\".\"]\ntransform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)\n");
-        }
-        _ => {
-            out += if has_player { player } else { camera };
-            out += &format!("[node name=\"{node}\" type=\"{node}\" parent=\".\"]\n");
+    out += if has_player { player } else { camera };
+    let on_player = has_player && (k.group == "player_ability" || k.uses.contains(&"stats"));
+    if on_player && k.uses.contains(&"stats") {
+        out += "[node name=\"CharacterStats\" type=\"CharacterStats\" parent=\"Player\"]\n\n";
+    }
+    let (parent, y) = if on_player { ("Player", 0.0) } else if k.group == "trigger" { (".", 0.5) } else if k.group == "mover" { (".", 0.1) } else { (".", 0.0) };
+    out += &format!("[node name=\"{node}\" type=\"{node}\" parent=\"{parent}\"]\n");
+    if parent == "." {
+        out += &format!("transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, {y}, 0)\n");
+    }
+    if k.group == "player_ability" {
+        // Two tall walls 3 m apart, to try wall jumps (and something to dash at).
+        for (i, x) in [(1, -1.6), (2, 1.6)] {
+            out += &format!("\n[node name=\"Wall{i}\" type=\"CSGBox3D\" parent=\".\"]\ntransform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, {x}, 3, -2)\nuse_collision = true\nsize = Vector3(0.4, 6, 6)\n");
         }
     }
     out
@@ -534,14 +542,14 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("rust/src")).unwrap();
         fs::write(root.join("rust/src/lib.rs"), "use godot::prelude::*;\nmod player;\n").unwrap();
-        let msg = scaffold(&root, "Double Jump", "Double Jump", "Jump again in the air.", "", "Node3D", "", &[]).unwrap();
+        let msg = scaffold(&root, "Double Jump", "Double Jump", "Jump again in the air.", "", "Node3D", "custom", "", &[]).unwrap();
         assert!(msg.contains("mechanics/double_jump/src/double_jump.rs"));
         let lib = fs::read_to_string(root.join("rust/src/lib.rs")).unwrap();
         assert!(lib.contains("#[path = \"../../mechanics/double_jump/src/mod.rs\"]\nmod double_jump;"));
         let info = info(&root, "double_jump").unwrap();
         assert!(info.contains("DoubleJump") && info.contains("speed = 1.0"));
-        assert!(scaffold(&root, "double_jump", "", "", "", "Node", "", &[]).is_err());
-        assert!(scaffold(&root, "x", "", "", "", "Node", "", &["stats".into()]).is_err());
+        assert!(scaffold(&root, "double_jump", "", "", "", "Node", "", "", &[]).is_err());
+        assert!(scaffold(&root, "x", "", "", "", "Node", "", "", &["stats".into()]).is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }
