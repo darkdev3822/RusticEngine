@@ -5,7 +5,8 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 AGENT=${AGENT:-$ROOT/agent/target/release/rustic-agent}
 EDITOR=$ROOT/engine/bin/godot.linuxbsd.editor.x86_64
-mkdir -p "$ROOT/.tmp"; W=$(mktemp -d -p "$ROOT/.tmp")  # on disk: /tmp may be RAM; P=$W/p; trap 'rm -rf "$W"' EXIT
+# On disk, not /tmp (/tmp may be RAM, and each Rust build is ~1.7 GB).
+mkdir -p "$ROOT/.tmp"; W=$(mktemp -d -p "$ROOT/.tmp"); P=$W/p; trap 'rm -rf "$W"' EXIT
 cp -r "$ROOT/sandbox/gen/base" "$P"
 mkdir -p "$P/mechanics" && cp -r "$ROOT/engine/modules/rustic/mechanics/first_person" "$ROOT/engine/modules/rustic/mechanics/stats" "$P/mechanics/"
 rm -rf "$P"/mechanics/*/target
