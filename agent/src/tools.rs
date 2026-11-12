@@ -148,11 +148,12 @@ pub fn definitions() -> Vec<ToolDef> {
 }
 
 /// Art the creator makes themselves in the Studio. Ember guides; it never writes these.
-/// A mechanic's existing source files. They start as working code (templates); rewriting one wholesale is how
-/// small models break it (invented imports, attributes on `base`), so only edit_file may change them. New files are fine.
+/// A mechanic's existing source files, tuning.tres and mechanic.toml. Rewriting one wholesale is how small models break
+/// a working mechanic (invented imports, a tuning.tres without its header that wipes the creator's values), so only
+/// edit_file may change them. New files are fine.
 pub fn is_mechanic_frame(path: &str) -> bool {
     let p = path.trim_start_matches("res://").replace('\\', "/");
-    p.starts_with("mechanics/") && p.contains("/src/") && p.ends_with(".rs")
+    p.starts_with("mechanics/") && ((p.contains("/src/") && p.ends_with(".rs")) || p.ends_with("/tuning.tres") || p.ends_with("/mechanic.toml"))
 }
 
 /// Writing into mechanics/<id>/ when there is no mechanic there yet (no mechanic.toml): the id, else None.
@@ -318,8 +319,8 @@ impl Project {
                         "{path} would never be compiled: a mechanic's Rust code lives in mechanics/<id>/src/ (its node file, tuning.rs, mod.rs). \
                          Change the existing file there with edit_file instead (read_file it first).")),
                     Ok(p) if p.exists() && is_mechanic_frame(path) => fail(format!(
-                        "{path} already exists and compiles: don't rewrite it from scratch. Use edit_file to change just the lines \
-                         that need it (e.g. add a field to the tuning struct, or a `mod x;` line).")),
+                        "{path} already exists and works: don't rewrite it from scratch (that would lose what's in it). Use edit_file to change \
+                         just the lines that need it (e.g. add one `name = value` line to tuning.tres, a field to the tuning struct, or a `mod x;` line).")),
                     Ok(p) => {
                         if let Some(dir) = p.parent() { let _ = fs::create_dir_all(dir); }
                         match fs::write(&p, content) {

@@ -72,6 +72,16 @@ fn logic_snapshot(src: &std::path::Path) -> Vec<(String, String)> {
     v
 }
 
+/// "a new mechanic", "I need a checkpoint mechanic", "an enemy patrol mechanic": a NEW one, not a change to one.
+fn asks_new_mechanic(text: &str) -> bool {
+    let t = text.to_lowercase();
+    if t.contains("new mechanic") {
+        return true;
+    }
+    let words: Vec<&str> = t.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    words.iter().enumerate().any(|(i, w)| *w == "mechanic" && words[i.saturating_sub(4)..i].iter().any(|x| *x == "a" || *x == "an"))
+}
+
 /// The key a request names for an ability: "pressing Shift", "on Q", "with the F key".
 fn named_key(text: &str) -> Option<String> {
     let t = format!(" {} ", text.to_lowercase().replace(|c: char| !c.is_alphanumeric(), " "));
@@ -512,11 +522,12 @@ impl Session {
                     .collect::<Vec<_>>().join("\n");
                 // Not when they want to be asked first, or when Ember just asked them something (collaborating, not stalling).
                 let asks_first = text.to_lowercase().contains("ask me") || last.trim_end().ends_with('?');
-                if wants_build(text) && text.to_lowercase().contains("mechanic") && !asks_first && scaffolded.is_none() && !changed_any && !mechanic_checked {
+                // (Even if other files changed: bolting a "new mechanic" onto an existing one isn't what they asked for.)
+                if wants_build(text) && asks_new_mechanic(text) && !asks_first && scaffolded.is_none() && !mechanic_checked {
                     emit(json!({"type": "guard", "name": "no_mechanic"}));
                     mechanic_checked = true;
                     self.history.push(Msg::User(
-                        "[Automatic check] They asked for a new mechanic and nothing was created. Your next step is a tool call: \
+                        "[Automatic check] They asked for a NEW mechanic and none was created (don't add it to an existing one). Your next step is a tool call: \
                          `mechanic` with action new, an id, a name, a one-sentence summary and the closest kind. Then adapt it and build.".into()));
                     continue;
                 }
@@ -782,6 +793,15 @@ mod tests {
         assert!(wants_build("I want a dash"));
         assert!(!wants_build("the player feels really slow"));
         assert!(!wants_build("why can't I pick up the stone?"));
+    }
+
+    #[test]
+    fn spots_new_mechanic_requests() {
+        assert!(asks_new_mechanic("I need a checkpoint mechanic: touching a checkpoint saves"));
+        assert!(asks_new_mechanic("new mechanic please: wall jump"));
+        assert!(asks_new_mechanic("make me an enemy patrol mechanic"));
+        assert!(!asks_new_mechanic("make the first person mechanic faster"));
+        assert!(!asks_new_mechanic("explain this mechanic to me"));
     }
 
     #[test]
