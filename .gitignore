@@ -1,6 +1,7 @@
 agent/target/
 branding/export/
 !branding/*.png
+!docs/images/*.png
 build.log
 knowledge/*/target/
 *.png
