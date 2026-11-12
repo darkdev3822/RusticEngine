@@ -28,7 +28,10 @@ WORK.mkdir(exist_ok=True)
 
 def is_template(proj, mid):
     """True if the mechanic's logic files are still exactly one of the kind templates (nothing of its own)."""
-    toml = Path(proj, "mechanics", mid, "mechanic.toml").read_text()
+    tp = Path(proj, "mechanics", mid, "mechanic.toml")
+    if not tp.exists():
+        return False  # made by hand, not from a template
+    toml = tp.read_text()
     val = lambda k: next((l.split("=", 1)[1].strip().strip('"') for l in toml.splitlines() if l.startswith(k + " ")), "")
     def logic(root):
         src = Path(root, "mechanics", mid, "src")
@@ -98,7 +101,7 @@ def run(model, key, ask):
     return ok
 
 if __name__ == "__main__":
-    only = os.environ.get("PROBE_ONLY")
+    only = [k for k in os.environ.get("PROBE_ONLY", "").split(",") if k]
     for model in sys.argv[1:]:
-        n = sum(run(model, k, a) for k, a in ASKS if not only or k == only)
-        print(f"== {model}: new mechanics {n}/{len([1 for k,_ in ASKS if not only or k == only])}", flush=True)
+        n = sum(run(model, k, a) for k, a in ASKS if not only or k in only)
+        print(f"== {model}: new mechanics {n}/{len([1 for k,_ in ASKS if not only or k in only])}", flush=True)

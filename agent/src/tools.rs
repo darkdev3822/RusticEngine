@@ -155,6 +155,13 @@ pub fn is_mechanic_frame(path: &str) -> bool {
     p.starts_with("mechanics/") && p.contains("/src/") && p.ends_with(".rs")
 }
 
+/// Writing into mechanics/<id>/ when there is no mechanic there yet (no mechanic.toml): the id, else None.
+pub fn unmade_mechanic(root: &Path, path: &str) -> Option<String> {
+    let p = path.trim_start_matches("res://").replace('\\', "/");
+    let id = p.strip_prefix("mechanics/")?.split('/').next()?.to_string();
+    (!id.is_empty() && p.len() > "mechanics/".len() + id.len() && !root.join("mechanics").join(&id).join("mechanic.toml").exists()).then_some(id)
+}
+
 /// A .rs file in a mechanic's folder but outside its src/: never compiled, so writing one only looks like progress.
 pub fn is_stray_mechanic_rust(path: &str) -> bool {
     let p = path.trim_start_matches("res://").replace('\\', "/");
@@ -302,6 +309,11 @@ impl Project {
             "write_file" => {
                 let content = args["content"].as_str().unwrap_or("");
                 match self.resolve(path, true) {
+                    Ok(_) if unmade_mechanic(&self.root, path).is_some() => {
+                        let id = unmade_mechanic(&self.root, path).unwrap_or_default();
+                        fail(format!("mechanics/{id}/ isn't a mechanic yet. Create it with the `mechanic` tool first (action new, id {id}, \
+                            the closest kind): that sets up its folder, registers its code and gives you working starting code to adapt."))
+                    }
                     Ok(_) if is_stray_mechanic_rust(path) => fail(format!(
                         "{path} would never be compiled: a mechanic's Rust code lives in mechanics/<id>/src/ (its node file, tuning.rs, mod.rs). \
                          Change the existing file there with edit_file instead (read_file it first).")),
