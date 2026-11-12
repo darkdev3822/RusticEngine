@@ -471,6 +471,13 @@ impl Session {
                     self.history.push(Msg::User(msg));
                     continue;
                 }
+                if let (Some(id), false) = (scaffolded.clone(), logic_written) {
+                    // Out of nudges: never let the creator believe the starting example is their mechanic.
+                    emit(json!({"type": "guard", "name": "template_left"}));
+                    emit(json!({"type": "text", "delta": format!("\n\n**Heads up:** mechanics/{id} still runs the starting example code, \
+                        not the mechanic you asked for yet. Say \"keep going\" and I'll write its logic, or press Try It to see the example.")}));
+                    break;
+                }
                 if !in_studio && !changed_any && !claim_checked && claims_change(&last) {
                     emit(json!({"type": "guard", "name": "change_claim"}));
                     claim_checked = true;

@@ -154,6 +154,12 @@ pub fn is_mechanic_frame(path: &str) -> bool {
     p.starts_with("mechanics/") && p.contains("/src/") && p.ends_with(".rs")
 }
 
+/// A .rs file in a mechanic's folder but outside its src/: never compiled, so writing one only looks like progress.
+pub fn is_stray_mechanic_rust(path: &str) -> bool {
+    let p = path.trim_start_matches("res://").replace('\\', "/");
+    p.starts_with("mechanics/") && p.ends_with(".rs") && !p.contains("/src/")
+}
+
 pub fn is_studio_art(path: &str) -> bool {
     let p = path.trim_start_matches("res://").to_lowercase();
     [".rmodel", ".rsfx", ".rpix", ".rmusic", ".rsky", ".rui"].iter().any(|e| p.ends_with(e)) || p.starts_with("design/studio/")
@@ -295,6 +301,9 @@ impl Project {
             "write_file" => {
                 let content = args["content"].as_str().unwrap_or("");
                 match self.resolve(path, true) {
+                    Ok(_) if is_stray_mechanic_rust(path) => fail(format!(
+                        "{path} would never be compiled: a mechanic's Rust code lives in mechanics/<id>/src/ (its node file, tuning.rs, mod.rs). \
+                         Change the existing file there with edit_file instead (read_file it first).")),
                     Ok(p) if p.exists() && is_mechanic_frame(path) => fail(format!(
                         "{path} already exists and compiles: don't rewrite it from scratch. Use edit_file to change just the lines \
                          that need it (e.g. add a field to the tuning struct, or a `mod x;` line).")),
