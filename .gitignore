@@ -21,3 +21,5 @@ runtime/target-*/
 dist/
 tests/e2e/out/
 training/probe_runs/
+training/probe_tmp/
+.tmp/

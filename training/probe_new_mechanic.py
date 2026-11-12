@@ -22,6 +22,9 @@ ASKS = [  # (key, ask)
 ]
 CTX = "in the Mechanics tab, looking at the First-Person Controller mechanic (res://mechanics/first_person, ...). The user chose Add Mechanic > A new mechanic of my own."
 OUT = Path(__file__).parent / "probe_runs"
+# On disk, not /tmp: /tmp is RAM here, and each project's Rust build is ~1.7 GB.
+WORK = Path(__file__).parent / "probe_tmp"
+WORK.mkdir(exist_ok=True)
 
 def is_template(proj, mid):
     """True if the mechanic's logic files are still exactly one of the kind templates (nothing of its own)."""
@@ -32,7 +35,7 @@ def is_template(proj, mid):
         return {f.name: f.read_text() for f in src.glob("*.rs") if f.name not in ("mod.rs", "tuning.rs")}
     mine = logic(proj)
     for kind in ("player_ability", "trigger", "mover", "timer", "custom"):
-        t = tempfile.mkdtemp(prefix="tmpl_")
+        t = tempfile.mkdtemp(prefix="tmpl_", dir=WORK)
         Path(t, "rust/src").mkdir(parents=True); Path(t, "rust/src/lib.rs").write_text("")
         args = {"action": "new", "id": mid, "name": val("name"), "summary": val("summary"), "node": val("node"), "kind": kind,
                 "base": "Node" if kind == "custom" else ""}
@@ -44,7 +47,7 @@ def is_template(proj, mid):
     return False
 
 def run(model, key, ask):
-    d = tempfile.mkdtemp(prefix="newmech_")
+    d = tempfile.mkdtemp(prefix="newmech_", dir=WORK)
     shutil.copytree(BASE, d + "/p")
     shutil.copytree(MECH, d + "/p/mechanics", ignore=shutil.ignore_patterns("target"))
     lib = Path(d + "/p/rust/src/lib.rs")
