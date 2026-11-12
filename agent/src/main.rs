@@ -572,7 +572,9 @@ impl Session {
                     // Written = its logic files differ from the starting code (edits to tuning or docs alone don't count).
                     logic_written = logic_snapshot(&self.project.root.join("mechanics").join(id).join("src")) != scaffold_snapshot;
                 }
-                if outcome.files_changed && (call.name == "new_rust_node" || touched.ends_with(".rs") || touched.ends_with("Cargo.toml")) {
+                // A new mechanic is new Rust code too: build it before the turn ends, so Try It works right away.
+                let new_mechanic = call.name == "mechanic" && call.args["action"].as_str() == Some("new") && outcome.ok;
+                if new_mechanic || (outcome.files_changed && (call.name == "new_rust_node" || touched.ends_with(".rs") || touched.ends_with("Cargo.toml"))) {
                     rust_dirty = true;
                 }
                 if outcome.rust_built && outcome.ok {
