@@ -23,3 +23,6 @@ tests/e2e/out/
 training/probe_runs/
 training/probe_tmp/
 .tmp/
+build_*.log
+training/probe_*.log
+training/probe_runs_*.log
