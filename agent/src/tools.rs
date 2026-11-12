@@ -147,6 +147,13 @@ pub fn definitions() -> Vec<ToolDef> {
 }
 
 /// Art the creator makes themselves in the Studio. Ember guides; it never writes these.
+/// A mechanic's existing source files. They start as working code (templates); rewriting one wholesale is how
+/// small models break it (invented imports, attributes on `base`), so only edit_file may change them. New files are fine.
+pub fn is_mechanic_frame(path: &str) -> bool {
+    let p = path.trim_start_matches("res://").replace('\\', "/");
+    p.starts_with("mechanics/") && p.contains("/src/") && p.ends_with(".rs")
+}
+
 pub fn is_studio_art(path: &str) -> bool {
     let p = path.trim_start_matches("res://").to_lowercase();
     [".rmodel", ".rsfx", ".rpix", ".rmusic", ".rsky", ".rui"].iter().any(|e| p.ends_with(e)) || p.starts_with("design/studio/")
@@ -288,6 +295,9 @@ impl Project {
             "write_file" => {
                 let content = args["content"].as_str().unwrap_or("");
                 match self.resolve(path, true) {
+                    Ok(p) if p.exists() && is_mechanic_frame(path) => fail(format!(
+                        "{path} already exists and compiles: don't rewrite it from scratch. Use edit_file to change just the lines \
+                         that need it (e.g. add a field to the tuning struct, or a `mod x;` line).")),
                     Ok(p) => {
                         if let Some(dir) = p.parent() { let _ = fs::create_dir_all(dir); }
                         match fs::write(&p, content) {

@@ -357,7 +357,7 @@ fn ollama(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], stop: 
         "model": cfg.model, "messages": messages, "tools": tools, "stream": true,
         "options": {"num_ctx": if cfg.context > 0 { cfg.context } else { 16384 }, "temperature": 0.4,
                     // A local model that starts repeating itself would otherwise generate forever.
-                    "num_predict": 8192},
+                    "num_predict": 4096},
     });
     // Ember is trained in Qwen3's non-thinking mode; qwen3 models otherwise spend a long time "thinking".
     let m = cfg.model.to_lowercase();
@@ -499,7 +499,7 @@ fn anthropic(cfg: &Config, system: &str, history: &[Msg], tools: &[ToolDef], sto
     }
     let tools: Vec<Value> = tools.iter().map(|t| json!({
         "name": t.name, "description": t.description, "input_schema": t.schema})).collect();
-    let body = json!({"model": cfg.model, "max_tokens": 8192, "system": system,
+    let body = json!({"model": cfg.model, "max_tokens": 4096, "system": system,
                       "messages": messages, "tools": tools, "stream": true});
     let base = if cfg.base_url.is_empty() { "https://api.anthropic.com" } else { &cfg.base_url };
     let req = agent().post(&url(base, "v1/messages"))

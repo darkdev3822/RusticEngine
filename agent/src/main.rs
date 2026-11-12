@@ -68,14 +68,19 @@ fn trim_history(history: &mut Vec<Msg>) {
         match next_user {
             Some(i) => { history.drain(..i); }
             None => {
-                // One huge exchange: shrink the largest tool results instead.
+                // One huge exchange: shrink the biggest tool results and runaway replies instead. Each message is
+                // trimmed at most once (the marker), so this always ends: re-trimming a trimmed message looped forever.
+                const MARK: &str = "\n...(trimmed to save memory)";
                 let mut shrunk = false;
                 for m in history.iter_mut() {
-                    if let Msg::Tool { content, .. } = m {
-                        if content.len() > 2000 {
-                            *content = format!("{}\n...(trimmed to save memory)", &content[..content.floor_char_boundary(2000)]);
-                            shrunk = true;
-                        }
+                    let (t, keep) = match m {
+                        Msg::Tool { content, .. } => (content, 2000),
+                        Msg::Assistant { text, .. } => (text, 4000),
+                        Msg::User(_) => continue,
+                    };
+                    if t.len() > keep + MARK.len() && !t.ends_with(MARK) {
+                        *t = format!("{}{MARK}", &t[..t.floor_char_boundary(keep)]);
+                        shrunk = true;
                     }
                 }
                 if !shrunk { break; }
@@ -351,7 +356,7 @@ impl Session {
         // A new mechanic is only a skeleton until its src/ gets real logic.
         let mut scaffolded: Option<String> = None;
         let mut logic_written = false;
-        let mut scaffold_checked = false;
+        let mut scaffold_nudges = 0u8;
         // In the Studio the open file is already inspected above, so Ember gets one round of tools at most,
         // and its reply is held back and cleaned (no reasoning tags, no "let me look again", no offers to do the art).
         let no_tools: Vec<_> = vec![];
@@ -436,13 +441,20 @@ impl Session {
                          (for a new mechanic: `mechanic` action new, then edit_file its src/, then build_rust), and only then reply.".into()));
                     continue;
                 }
-                if let (Some(id), false, false) = (scaffolded.clone(), logic_written, scaffold_checked) {
+                if let (Some(id), false, true) = (scaffolded.clone(), logic_written, scaffold_nudges < 2) {
                     emit(json!({"type": "guard", "name": "empty_mechanic"}));
-                    scaffold_checked = true;
-                    self.history.push(Msg::User(format!(
-                        "[Automatic check] The {id} mechanic is still the empty skeleton from `mechanic` new: nothing in mechanics/{id}/src/ has its logic yet. \
-                         Read mechanics/{id}/src/ files, write the logic with edit_file (put every tunable number in tuning.rs as an #[export(range = ...)] field \
-                         with a /// comment, and in tuning.tres), build_rust, and only then say it's done.")));
+                    scaffold_nudges += 1;
+                    // Second time: name the exact next tool call (small models follow that more reliably).
+                    let msg = if scaffold_nudges == 1 {
+                        format!("[Automatic check] The {id} mechanic still only has the starting code from `mechanic` new: you haven't written \
+                                 what makes it the mechanic they asked for. Read its node file in mechanics/{id}/src/, change the example block \
+                                 with edit_file (put every new tunable number in tuning.rs as an #[export(range = ...)] field with a /// comment, \
+                                 and in tuning.tres), build_rust, and only then say it's done.")
+                    } else {
+                        format!("[Automatic check] Still nothing written. Your next step is a tool call, not text: call read_file on the \
+                                 node file listed in mechanics/{id}/src/ (not tuning.rs or mod.rs), then edit_file it.")
+                    };
+                    self.history.push(Msg::User(msg));
                     continue;
                 }
                 if !in_studio && !changed_any && !claim_checked && claims_change(&last) {
@@ -676,5 +688,20 @@ mod guard_tests {
         assert!(promises_lookup("The top is flat. Let me check the picture."));
         assert!(!promises_lookup("Press E to extrude. I'll be here if you get stuck."));
         assert!(!promises_lookup("Here's what I found. Want to start?"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trim_history_ends_with_one_huge_exchange() {
+        // A runaway 40k-char reply plus big tool results, with no later user message to cut at:
+        // this used to re-trim the same results forever.
+        let tool = |c: char| Msg::Tool { id: "1".into(), name: "read_file".into(), content: c.to_string().repeat(30_000) };
+        let mut h = vec![Msg::User("make a dash".into()), Msg::Assistant { text: "word ".repeat(8000), calls: vec![] }, tool('x'), tool('y')];
+        trim_history(&mut h);
+        assert!(h.iter().map(msg_len).sum::<usize>() < 20_000);
     }
 }
