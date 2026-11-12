@@ -222,11 +222,17 @@ pub fn scaffold(root: &Path, id: &str, name: &str, summary: &str, node: &str, ba
     let uses = &uses[..];
     let lib_path = root.join("rust/src/lib.rs");
     let Ok(lib) = fs::read_to_string(&lib_path) else { return Err("rust/src/lib.rs is missing. Is this a Rust project?".into()) };
+    // A starter that isn't installed yet must be added first; a name that isn't a mechanic at all
+    // (e.g. "timer", a Godot class) is just dropped instead of failing the whole call.
+    let mut kept: Vec<String> = vec![];
     for u in uses {
-        if !root.join("mechanics").join(u).exists() {
+        if root.join("mechanics").join(u).exists() {
+            kept.push(u.clone());
+        } else if STARTERS.iter().any(|(id, _, _)| id == u) {
             return Err(format!("It uses '{u}', which isn't in this project. Ask the creator to add it first (Mechanics tab > Add Mechanic), or leave it out."));
         }
     }
+    let uses = &kept[..];
     let node = if node.trim().is_empty() { pascal(&id) } else { pascal(node) };
     let base = match kind {
         Some(k) => k.base.to_string(),

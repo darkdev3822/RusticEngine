@@ -63,13 +63,15 @@ def run(model, key, ask):
     turns = [ask, "Sounds good, go ahead and make it. Use sensible defaults for anything I didn't say."]
     try:
         for turn in turns:
-            if turn is not ask and "mechanic" in tools and any(t in ("edit_file", "write_file") for t in tools[tools.index("mechanic") + 1:]):
+            if turn is not ask and "mechanic" in [t.split("(")[0] for t in tools] and any(t.split("(")[0] in ("edit_file", "write_file") for t in tools[[t.split("(")[0] for t in tools].index("mechanic") + 1:]):
                 break
             p.stdin.write(json.dumps({"type": "user", "text": turn, "context": CTX}) + "\n"); p.stdin.flush()
             for line in p.stdout:
                 v = json.loads(line)
                 if v["type"] == "tool_start": tools.append(v["name"])
-                elif v["type"] == "tool_end" and v["name"] == "build_rust": builds.append(v["ok"])
+                elif v["type"] == "tool_end":
+                    if v["name"] == "build_rust": builds.append(v["ok"])
+                    if not v.get("ok", True) and tools: tools[-1] += "(FAILED)"
                 elif v["type"] == "text": text += v["delta"]
                 elif v["type"] == "guard": guards.append(v.get("name"))
                 elif v["type"] in ("done", "error"): break
@@ -81,7 +83,7 @@ def run(model, key, ask):
     r = subprocess.run(["cargo", "build", "--quiet", "--message-format=short"], cwd=d + "/p/rust", capture_output=True, text=True)
     ok_build = r.returncode == 0
     # The logic must actually be written: some edit after the mechanic was created (a bare scaffold also builds).
-    wrote = "mechanic" in tools and any(t in ("edit_file", "write_file") for t in tools[tools.index("mechanic") + 1:])
+    wrote = "mechanic" in [t.split("(")[0] for t in tools] and any(t.split("(")[0] in ("edit_file", "write_file") for t in tools[[t.split("(")[0] for t in tools].index("mechanic") + 1:])
     unchanged = bool(created) and is_template(d + "/p", created[0])
     # Pass = it builds AND its code does what was asked (score_new_mechanic.NEEDS). A starting variant that
     # already is the asked mechanic is fine unchanged; an unrelated example left as-is fails the check.
