@@ -105,7 +105,7 @@ pub mod local {
     }
 
     /// Ember's published model (Hugging Face). RUSTIC_EMBER_URL overrides it.
-    const EMBER_URL: &str = "https://huggingface.co/RusticEngine/Ember-8B-GGUF/resolve/main/ember.gguf";
+    const EMBER_URL: &str = "https://huggingface.co/johangdarkdev/Ember-8B-GGUF/resolve/main/ember.gguf";
     /// The picture-reading model and its image encoder (official Qwen release, Apache-2.0).
     const VISION: [(&str, &str); 2] = [
         ("Qwen3VL-4B-Instruct-Q4_K_M.gguf", "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf"),

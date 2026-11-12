@@ -23,12 +23,13 @@ RusticEngine downloads this model automatically the first time you open the AI G
 ## What it is
 
 - **Base:** Qwen3-8B (Apache-2.0). Fine-tuned with QLoRA (rank 16) on several hundred RusticEngine agent traces: real tool calls (reading and editing code, `cargo` builds with compiler feedback, headless playtests, Godot API lookups), plus collaboration conversations (kickoff questions, learning mode, concept art, Studio guidance).
+- **File:** `ember.gguf` (SHA-256 `5b0017088220f714af249405a5ba5db5a93bb5880bb29072e727b127cc9fa02c`).
 - **Format:** GGUF, mixed 4/5-bit (attention and ffn_down in Q5_0, ffn_gate/up and embeddings in Q4_0, output in Q8_0), about 5.5 GB.
 - **Chat format:** Qwen3 ChatML with `<tool_call>` tool calls, non-thinking mode (an empty `<think></think>` block before each reply).
 
 ## How well it does
 
-On RusticEngine's own evaluation (32 unseen godot-rust coding tasks, scored by whether the code builds and the game runs), Ember with RusticEngine's agent harness built about 17 of 32 and ran about 16 of 32 per pass. Base Qwen3-8B scored roughly 7 of 16 on an earlier, smaller version of the same evaluation. On held-out Studio and Mechanics questions it gives grounded, step-by-step guidance (34/34 and 8/9 on the current probes).
+On RusticEngine's own evaluation (32 unseen godot-rust coding tasks, scored by whether the code builds and the game runs), Ember with RusticEngine's agent harness built about 17 of 32 and ran about 16 of 32 per pass. Base Qwen3-8B scored roughly 7 of 16 on an earlier, smaller version of the same evaluation. On held-out Studio and Mechanics questions it gives grounded, step-by-step guidance (34/34 and 9/9 on the current probes). Asked for new game mechanics it hasn't seen (a dash, a door, checkpoints, a patrolling enemy...), it delivers ones that build and do what was asked in most cases (6 of 8 in the latest full run, up from 0 of 5), by starting from RusticEngine's tested mechanic variants.
 
 It is an 8B model, so it still invents Godot methods sometimes. RusticEngine's harness compensates: builds feed compiler errors back to it, missing imports are fixed automatically, and API lookups are offered before it writes code. For harder work, RusticEngine can also use a frontier model (Claude, OpenAI and others) in the AI Guide settings.
 
