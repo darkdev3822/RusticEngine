@@ -1496,7 +1496,16 @@ pub fn pick(kind: &str, base: &str, hint: &str) -> Option<&'static Kind> {
     if kind == "custom" {
         return None;
     }
+    let words = hint.to_lowercase().replace('_', " ");
+    let matches = |k: &Kind| k.keywords.iter().any(|w| words.contains(w));
     if let Some(k) = KINDS.iter().find(|k| k.id == kind) {
+        // The model sometimes names the wrong variant (score for a health-regen ask): if the request's words
+        // point to another variant and none of this one's do, trust the words.
+        if !matches(k) {
+            if let Some(better) = KINDS.iter().find(|o| o.id != k.id && matches(o)) {
+                return Some(better);
+            }
+        }
         // A generic family pick (e.g. "trigger") can still be refined by the request's words.
         let family_default = KINDS.iter().find(|f| f.group == k.group).map(|f| f.id) == Some(k.id);
         if !family_default {
@@ -1537,4 +1546,20 @@ pub fn key_const(name: &str) -> Option<&'static str> {
         ("tab", "TAB"), ("enter", "ENTER"), ("q", "Q"), ("e", "E"), ("r", "R"), ("f", "F"), ("c", "C"), ("v", "V"), ("x", "X"),
         ("z", "Z"), ("g", "G"), ("t", "T"), ("1", "KEY_1"), ("2", "KEY_2"), ("3", "KEY_3")];
     KEYS.iter().find(|(k, _)| *k == n).map(|(_, c)| *c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn picks_by_words_and_corrects_wrong_kinds() {
+        let id = |k: Option<&Kind>| k.map(|k| k.id).unwrap_or("none");
+        assert_eq!(id(pick("score", "", "regen Health Regen health slowly regenerates")), "regen");
+        assert_eq!(id(pick("trigger", "", "coin Coins collect coins with a counter")), "pickup_counter");
+        assert_eq!(id(pick("door", "", "door Door opens when near")), "door");
+        assert_eq!(id(pick("timer", "", "countdown Level Timer 60 seconds")), "countdown");
+        assert_eq!(id(pick("", "Node", "dash Dash quick burst")), "dash");
+        assert_eq!(id(pick("custom", "Node", "dash")), "none");
+        assert!(exact_fit("score", "", "score Score points"));
+    }
 }
