@@ -130,9 +130,11 @@ fn parse_text_calls(text: &str, defs: &[llm::ToolDef]) -> Vec<llm::ToolCall> {
 /// Does this reply tell the user something was changed in their project?
 fn claims_change(text: &str) -> bool {
     let t = text.to_lowercase().replace('\u{2019}', "'");
-    const VERBS: [&str; 9] = ["added", "made", "changed", "updated", "created", "turned", "gave", "fixed", "set up"];
+    const VERBS: [&str; 14] = ["added", "made", "changed", "updated", "created", "turned", "gave", "fixed", "set up", "written", "wrote",
+        "built", "implemented", "coded"];
     let says_i = VERBS.iter().any(|v| t.contains(&format!("i {v} ")) || t.contains(&format!("i've {v} ")) || t.contains(&format!("i have {v} ")));
-    says_i || t.contains("press **play**") || t.contains("press play")
+    const DONE: [&str; 5] = ["is now part of", "is now in the", "now lets the player", "is ready to try", "it's ready to try"];
+    says_i || DONE.iter().any(|d| t.contains(d)) || t.contains("press **play**") || t.contains("press play")
 }
 
 /// "I've saved it to your journal" without a journal call.
@@ -371,6 +373,7 @@ impl Session {
         let mut logic_written = false;
         let mut scaffold_snapshot: Vec<(String, String)> = vec![];
         let mut scaffold_nudges = 0u8;
+        let mut mechanic_checked = false;
         // In the Studio the open file is already inspected above, so Ember gets one round of tools at most,
         // and its reply is held back and cleaned (no reasoning tags, no "let me look again", no offers to do the art).
         let no_tools: Vec<_> = vec![];
@@ -478,7 +481,22 @@ impl Session {
                         not the mechanic you asked for yet. Say \"keep going\" and I'll write its logic, or press Try It to see the example.")}));
                     break;
                 }
-                if !in_studio && !changed_any && !claim_checked && claims_change(&last) {
+                // Everything Ember said this turn (a claim can sit in an earlier message than the last).
+                let said: String = self.history.iter().rev()
+                    .take_while(|m| !matches!(m, Msg::User(u) if !u.starts_with("[Automatic check]")))
+                    .filter_map(|m| match m { Msg::Assistant { text, .. } => Some(text.as_str()), _ => None })
+                    .collect::<Vec<_>>().join("\n");
+                // Not when they want to be asked first, or when Ember just asked them something (collaborating, not stalling).
+                let asks_first = text.to_lowercase().contains("ask me") || last.trim_end().ends_with('?');
+                if wants_build(text) && text.to_lowercase().contains("mechanic") && !asks_first && scaffolded.is_none() && !changed_any && !mechanic_checked {
+                    emit(json!({"type": "guard", "name": "no_mechanic"}));
+                    mechanic_checked = true;
+                    self.history.push(Msg::User(
+                        "[Automatic check] They asked for a new mechanic and nothing was created. Your next step is a tool call: \
+                         `mechanic` with action new, an id, a name, a one-sentence summary and the closest kind. Then adapt it and build.".into()));
+                    continue;
+                }
+                if !in_studio && !changed_any && !claim_checked && (claims_change(&last) || claims_change(&said)) {
                     emit(json!({"type": "guard", "name": "change_claim"}));
                     claim_checked = true;
                     emit(json!({"type": "text", "delta": "\n\nWait - I haven't actually saved that change yet. Doing it now...\n\n"}));
