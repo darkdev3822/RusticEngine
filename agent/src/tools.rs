@@ -463,9 +463,41 @@ impl I{base} for {class} {{
     fn add_hints(&self, mut o: Outcome) -> Outcome {
         let mut hints = self.method_hints(&o.raw);
         hints.extend(godot_rust_hints(&o.raw));
+        hints.extend(self.tuning_field_hints(&o.raw));
         hints.extend(error_explanations(&o.raw));
         if !hints.is_empty() { o.content += &format!("\nHints:\n- {}", hints.join("\n- ")); }
         o
+    }
+
+    /// "no field `x` on type `GdRef<'_, FooTuning>`": the code reads a tuning value that doesn't exist.
+    /// List the real ones and say how to add a new one (both files).
+    fn tuning_field_hints(&self, raw: &str) -> Vec<String> {
+        let mut out = vec![];
+        for line in raw.lines().filter(|l| l.contains("error[E0609]: no field `")) {
+            let field = line.split('`').nth(1).unwrap_or("");
+            let Some(ty) = line.split("Tuning").next().and_then(|a| a.rsplit(|c: char| !c.is_alphanumeric() && c != '_').next()) else { continue };
+            if !line.contains("Tuning") || ty.is_empty() {
+                continue;
+            }
+            let ty = format!("{ty}Tuning");
+            // Find the tuning.rs that defines it.
+            let Ok(dirs) = fs::read_dir(self.root.join("mechanics")) else { continue };
+            for d in dirs.flatten() {
+                let file = d.path().join("src/tuning.rs");
+                let text = fs::read_to_string(&file).unwrap_or_default();
+                if !text.contains(&format!("pub struct {ty} ")) {
+                    continue;
+                }
+                let fields: Vec<String> = text.lines().map(str::trim).filter(|l| l.starts_with("pub ") && l.contains(':') && !l.starts_with("pub struct"))
+                    .map(|l| l.trim_start_matches("pub ").split(':').next().unwrap_or("").trim().to_string()).collect();
+                let id = d.file_name().to_string_lossy().to_string();
+                out.push(format!("`{field}` isn't one of {ty}'s values. It has: {}. Either use one of those, or add `{field}` to BOTH \
+                    mechanics/{id}/src/tuning.rs (a `pub {field}: f32` field with #[export(range = ...)], #[init(val = ...)] and a /// comment, \
+                    copying an existing field) and mechanics/{id}/tuning.tres (a `{field} = ...` line under [resource]).", fields.join(", ")));
+                break;
+            }
+        }
+        out
     }
 
     /// For "no method named X" errors, look up what Godot actually offers on that class (and its parents).
