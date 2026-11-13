@@ -5,22 +5,26 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
     "category": "Import-Export",
 }
 
+import json
 import os
+import time
 
 import bpy
-from bpy.props import BoolProperty, StringProperty
+from bpy.app.handlers import persistent
+from bpy.props import BoolProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
 from . import graph
 
 EXTENSION_NAME = "RUSTIC_blender_nodes"
+_final_path = ""   # real destination while exporting through a temp file
 
 
 class glTF2ExportUserExtension:
@@ -33,7 +37,7 @@ class glTF2ExportUserExtension:
     def gather_material_hook(self, gltf2_material, blender_material, export_settings):
         if blender_material is None:
             return
-        path = export_settings.get("gltf_filepath", "")
+        path = _final_path or export_settings.get("gltf_filepath", "")
         glb_dir = os.path.dirname(os.path.abspath(path)) if path else ""
         stem = os.path.splitext(os.path.basename(path))[0] if path else "export"
         ctx = {"glb_dir": glb_dir, "texture_dir": os.path.join(glb_dir, stem + "_textures") if glb_dir else ""}
@@ -56,24 +60,82 @@ def _prefs(context):
     return addon.preferences if addon else None
 
 
+def find_project(path):
+    """The folder holding project.godot above `path`, or ""."""
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isfile(os.path.join(d, "project.godot")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return ""
+        d = parent
+
+
 def export_glb(filepath, use_selection=False):
-    """Exports the scene the way RusticEngine wants it. Returns the written path."""
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=filepath,
-        export_format="GLB",
-        use_selection=use_selection,
-        export_apply=True,          # modifiers (incl. Geometry Nodes) as evaluated meshes
-        export_yup=True,
-        export_extras=True,
-        export_cameras=True,
-        export_lights=True,
-        export_materials="EXPORT",
-    )
+    """Exports the scene the way RusticEngine wants it, then tells an open editor. Returns the written path.
+
+    Writes through a hidden temp folder and renames, so the editor never imports a half-written file."""
+    global _final_path
+    filepath = os.path.abspath(filepath)
+    tmp_dir = os.path.join(os.path.dirname(filepath), ".rustic_tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp = os.path.join(tmp_dir, os.path.basename(filepath))
+    _final_path = filepath
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=tmp,
+            export_format="GLB",
+            use_selection=use_selection,
+            export_apply=True,          # modifiers (incl. Geometry Nodes) as evaluated meshes
+            export_yup=True,
+            export_extras=True,
+            export_cameras=True,
+            export_lights=True,
+            export_materials="EXPORT",
+        )
+        os.replace(tmp, filepath)
+    finally:
+        _final_path = ""
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
+    notify_editor(filepath)
     return filepath
 
 
+def notify_editor(filepath):
+    """Writes res://.godot/rustic/blender_link.json; the RusticEngine editor watches it and reimports."""
+    project = find_project(filepath)
+    if not project:
+        return False
+    rel = os.path.relpath(filepath, project).replace(os.sep, "/")
+    note_dir = os.path.join(project, ".godot", "rustic")
+    os.makedirs(note_dir, exist_ok=True)
+    note = os.path.join(note_dir, "blender_link.json")
+    tmp = note + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"files": ["res://" + rel], "blend": bpy.data.filepath, "time": time.time()}, f)
+    os.replace(tmp, note)
+    return True
+
+
+def editor_connected(filepath):
+    """True when a RusticEngine editor has this project open (it touches editor_alive every 2 s)."""
+    project = find_project(filepath) if filepath else ""
+    if not project:
+        return False
+    try:
+        return time.time() - os.path.getmtime(os.path.join(project, ".godot", "rustic", "editor_alive")) < 6
+    except OSError:
+        return False
+
+
 def default_target(context):
+    target = context.scene.rustic.target if context.scene else ""
+    if target:
+        return bpy.path.abspath(target)
     prefs = _prefs(context)
     blend = bpy.data.filepath
     name = os.path.splitext(os.path.basename(blend))[0] if blend else "untitled"
@@ -107,8 +169,34 @@ class RUSTIC_OT_export(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Export failed: {e}")
             return {"CANCELLED"}
         context.window_manager.rustic_last_export = self.filepath
+        context.scene.rustic.target = self.filepath   # later saves (Live Link) go to the same place
         self.report({"INFO"}, f"Sent to RusticEngine: {self.filepath}")
         return {"FINISHED"}
+
+
+class RUSTIC_SceneSettings(bpy.types.PropertyGroup):
+    live: BoolProperty(name="Live Link", default=False,
+                       description="Every time you save the .blend, re-export it to RusticEngine; an open editor updates by itself")
+    target: StringProperty(name="Export Path", subtype="FILE_PATH",
+                           description="Where this .blend is exported (set by the first export)")
+
+
+@persistent
+def _on_save(*_args):
+    scene = bpy.context.scene
+    if scene is None or not scene.rustic.live:
+        return
+    target = default_target(bpy.context)
+    if not target:
+        print("RusticEngine Live Link: set a project in the RusticEngine panel first")
+        return
+    try:
+        export_glb(target)
+        bpy.context.window_manager.rustic_last_export = target
+        scene.rustic.target = target
+        print("RusticEngine Live Link: sent", target)
+    except Exception as e:
+        print("RusticEngine Live Link: export failed:", e)
 
 
 class RUSTIC_Preferences(bpy.types.AddonPreferences):
@@ -135,27 +223,40 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         if prefs:
             col.prop(prefs, "project_dir", text="Project")
         col.operator(RUSTIC_OT_export.bl_idname, icon="EXPORT")
+        col.prop(context.scene.rustic, "live", icon="LINKED")
+        if context.scene.rustic.live and not bpy.data.filepath:
+            col.label(text="Save the .blend to start", icon="INFO")
+        target = default_target(context)
+        if target:
+            ok = editor_connected(target)
+            col.label(text="Editor open" if ok else "Editor not open", icon="CHECKMARK" if ok else "RADIOBUT_OFF")
         last = context.window_manager.rustic_last_export
         if last:
-            col.label(text="Last: " + os.path.basename(last), icon="CHECKMARK")
+            col.label(text="Last: " + os.path.basename(last), icon="FILE_3D")
 
 
 def _menu(self, context):
     self.layout.operator(RUSTIC_OT_export.bl_idname, text="RusticEngine (.glb)")
 
 
-_classes = (RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel)
+_classes = (RUSTIC_SceneSettings, RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel)
 
 
 def register():
     for c in _classes:
         bpy.utils.register_class(c)
     bpy.types.WindowManager.rustic_last_export = StringProperty()
+    bpy.types.Scene.rustic = PointerProperty(type=RUSTIC_SceneSettings)
     bpy.types.TOPBAR_MT_file_export.append(_menu)
+    if _on_save not in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.append(_on_save)
 
 
 def unregister():
+    if _on_save in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.remove(_on_save)
     bpy.types.TOPBAR_MT_file_export.remove(_menu)
+    del bpy.types.Scene.rustic
     del bpy.types.WindowManager.rustic_last_export
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)

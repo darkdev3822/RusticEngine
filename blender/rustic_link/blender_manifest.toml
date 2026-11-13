@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "rustic_link"
-version = "0.1.0"
+version = "0.2.0"
 name = "RusticEngine Link"
 tagline = "Send your Blender scenes to RusticEngine, procedural materials included"
 maintainer = "RusticEngine"
