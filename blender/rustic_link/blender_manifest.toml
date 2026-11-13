@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "rustic_link"
+version = "0.1.0"
+name = "RusticEngine Link"
+tagline = "Send your Blender scenes to RusticEngine, procedural materials included"
+maintainer = "RusticEngine"
+type = "add-on"
+website = "https://github.com/darkdev3822/RusticEngine"
+tags = ["Import-Export", "Game Engine"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Writes .glb files and textures into your RusticEngine project"

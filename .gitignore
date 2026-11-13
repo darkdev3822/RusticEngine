@@ -27,3 +27,4 @@ build_*.log
 training/probe_*.log
 training/probe_runs_*.log
 __pycache__/
+tests/blender/out/
