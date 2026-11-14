@@ -35,3 +35,4 @@ tests/blender/out_bake/
 tests/blender/out_lights/
 tests/blender/out_anim/
 tests/blender/out_collision/
+tests/blender/out_lod/

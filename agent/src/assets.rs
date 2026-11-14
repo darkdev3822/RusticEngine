@@ -124,6 +124,25 @@ fn gltf_summary(v: &Value) -> String {
         out.push(format!("Collision (from Blender's Rigid Body settings): {}. Each becomes a body named after the object, \
                           its visible mesh a child named Mesh.", cols.join("; ")));
     }
+    // Hand-made LODs (<Name>_LOD0..n): which distances each level shows at.
+    let mut lods: std::collections::BTreeMap<String, Vec<(i64, f64, f64, String)>> = Default::default();
+    for n in v["nodes"].as_array().into_iter().flatten() {
+        let l = &n["extensions"]["RUSTIC_blender_lod"];
+        if l.is_object() {
+            lods.entry(l["group"].as_str().unwrap_or("?").to_string()).or_default().push((
+                l["index"].as_i64().unwrap_or(0), l["begin"].as_f64().unwrap_or(0.0), l["end"].as_f64().unwrap_or(0.0),
+                n["name"].as_str().unwrap_or("").to_string()));
+        }
+    }
+    if !lods.is_empty() {
+        let groups: Vec<String> = lods.into_iter().map(|(g, mut ls)| {
+            ls.sort_by_key(|l| l.0);
+            let parts: Vec<String> = ls.iter().map(|(_, b, e, name)| if *e > 0.0 { format!("{name} {b:.0}-{e:.0} m") } else { format!("{name} from {b:.0} m") }).collect();
+            format!("{g} ({})", parts.join(", "))
+        }).collect();
+        out.push(format!("Hand-made LODs (each group is one node named after the object, LODs as children): {}. \
+                          Other meshes get automatic LODs from RusticEngine.", groups.join("; ")));
+    }
     // Which animations loop: the add-on sends Blender's Cyclic Animation flag, RusticEngine sets the loop.
     let acts = &v["scenes"][0]["extensions"]["RUSTIC_blender_actions"]["actions"];
     if let Some(anims) = v["animations"].as_array().filter(|_| acts.is_object()) {
