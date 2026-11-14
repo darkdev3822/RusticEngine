@@ -13,6 +13,7 @@ pub const STARTERS: &[(&str, &str, &str)] = &[
     ("combat", "Attack & Damage", "melee cone hits, cooldown, stamina cost, hurtboxes, knockback (uses stats)"),
     ("inventory", "Inventory", "items as .tres, stacking, weight limit from strength, selling (uses stats)"),
     ("hud", "HUD", "health/stamina bars with damage trail, worth, message feed (uses stats)"),
+    ("character_animation", "Animated Character", "plays a model's Idle/Walk/Run/Fall by itself, blended by real speed, feet don't slide (walk/idle blending, uses third_person)"),
 ];
 
 struct Manifest {
