@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -21,7 +21,7 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
-from . import graph, refs, ember, bake
+from . import graph, refs, ember, bake, scene_data
 
 EXTENSION_NAME = "RUSTIC_blender_nodes"
 _final_path = ""   # real destination while exporting through a temp file
@@ -34,13 +34,30 @@ class glTF2ExportUserExtension:
         from io_scene_gltf2.io.com.gltf2_io_extensions import Extension
         self.Extension = Extension
 
-    def gather_material_hook(self, gltf2_material, blender_material, export_settings):
-        if blender_material is None:
-            return
+    @staticmethod
+    def _ctx(export_settings):
         path = _final_path or export_settings.get("gltf_filepath", "")
         glb_dir = os.path.dirname(os.path.abspath(path)) if path else ""
         stem = os.path.splitext(os.path.basename(path))[0] if path else "export"
-        ctx = {"glb_dir": glb_dir, "texture_dir": os.path.join(glb_dir, stem + "_textures") if glb_dir else ""}
+        return {"glb_dir": glb_dir, "texture_dir": os.path.join(glb_dir, stem + "_textures") if glb_dir else ""}
+
+    def _add(self, gltf_obj, name, data):
+        if gltf_obj.extensions is None:
+            gltf_obj.extensions = {}
+        gltf_obj.extensions[name] = self.Extension(name=name, extension=data, required=False)
+
+    def gather_node_hook(self, gltf2_node, blender_object, export_settings):
+        if blender_object is not None and getattr(blender_object, "type", "") == "LIGHT":
+            self._add(gltf2_node, scene_data.LIGHT_EXT, scene_data.light_data(blender_object.data))
+
+    def gather_scene_hook(self, gltf2_scene, blender_scene, export_settings):
+        if blender_scene is not None:
+            self._add(gltf2_scene, scene_data.WORLD_EXT, scene_data.world_data(blender_scene, self._ctx(export_settings)))
+
+    def gather_material_hook(self, gltf2_material, blender_material, export_settings):
+        if blender_material is None:
+            return
+        ctx = self._ctx(export_settings)
         # Blender 5.x passes an InlineShaderNodes (node groups already flattened); 4.x the Material.
         if isinstance(blender_material, bpy.types.Material):
             mat, tree = blender_material, None
@@ -181,6 +198,8 @@ class RUSTIC_OT_export(bpy.types.Operator, ExportHelper):
 class RUSTIC_SceneSettings(bpy.types.PropertyGroup):
     live: BoolProperty(name="Live Link", default=False,
                        description="Every time you save the .blend, re-export it to RusticEngine; an open editor updates by itself")
+    export_world: BoolProperty(name="Send World", default=True,
+                               description="Bring the world (sky or HDRI, background color) and the color management (AgX/Filmic, exposure) into RusticEngine as a WorldEnvironment")
     auto_bake: BoolProperty(name="Auto-Bake", default=True,
                             description="Materials RusticEngine couldn't rebuild from nodes last time are baked into images on export")
     bake_size: EnumProperty(name="Bake Size", default="1024", items=[("512", "512", ""), ("1024", "1024", ""), ("2048", "2048", ""), ("4096", "4096", "")],
@@ -232,6 +251,7 @@ class RUSTIC_PT_panel(bpy.types.Panel):
             col.prop(prefs, "project_dir", text="Project")
         col.operator(RUSTIC_OT_export.bl_idname, icon="EXPORT")
         col.prop(context.scene.rustic, "live", icon="LINKED")
+        col.prop(context.scene.rustic, "export_world", icon="WORLD")
         if context.scene.rustic.live and not bpy.data.filepath:
             col.label(text="Save the .blend to start", icon="INFO")
         target = default_target(context)

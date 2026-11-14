@@ -45,3 +45,10 @@ Before weapons, buildings or terrain, three ideas make everything else easy: wha
 **Build:** Open the RusticEngine tab in the sidebar (N), set your project once, press Export to RusticEngine, then tick Live Link. From now on Ctrl+S in Blender updates the game. Keep the .blend file outside the project folder.
 **You'll learn:** 1 Blender unit = 1 meter = 1 unit in the engine. Apply scale (Ctrl+A) and put the origin where the object should stand (Object > Set Origin) before export.
 **Done when:** Your crate is in your game, and changing it in Blender updates it there.
+
+## Step 9: Light it once, in Blender
+**Design question:** What time of day is your scene, and where does the light come from?
+**Build:** Add a Sun (Shift+A > Light > Sun) and rotate it (R) until the shadows fall the way you want; Strength 3-5 is daylight. Add Point or Spot lights for lamps and torches (Watts in the Light properties), Area lights for windows. Set the world: World properties > Color for a plain sky, or an HDRI (Environment Texture, free CC0 skies on Poly Haven) for real outdoor light. Check it in Rendered view (Z > Rendered) with Cycles.
+**You'll learn:** Light has units: a sun is measured per square meter (it's the same everywhere), a lamp in watts (it fades with the square of the distance: twice as far = a quarter as bright). RusticEngine rebuilds Blender's sun, point, spot and area lights with the same brightness, plus the world sky and your color management (AgX/Filmic and Exposure in Render properties > Color Management), when Send World is on in the RusticEngine panel. Area lights become soft spot lights (games have no true area lights). Turn Send World off for props, so only the level brings its sky.
+**Try it yourself:** Move a point light twice as far from a wall and predict how much darker it gets before you look.
+**Done when:** The scene looks the same in Blender's Rendered view and in your game.
