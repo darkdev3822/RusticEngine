@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -53,6 +53,7 @@ class glTF2ExportUserExtension:
     def gather_scene_hook(self, gltf2_scene, blender_scene, export_settings):
         if blender_scene is not None:
             self._add(gltf2_scene, scene_data.WORLD_EXT, scene_data.world_data(blender_scene, self._ctx(export_settings)))
+            self._add(gltf2_scene, scene_data.ACTIONS_EXT, scene_data.actions_data(blender_scene))
 
     def gather_material_hook(self, gltf2_material, blender_material, export_settings):
         if blender_material is None:
@@ -114,7 +115,11 @@ def export_glb(filepath, use_selection=False):
                 export_cameras=True,
                 export_lights=True,
                 export_materials="EXPORT",
+                export_anim_slide_to_zero=True,   # Blender starts at frame 1; games start animations at 0 s
+                export_def_bones=bpy.context.scene.rustic.deform_only,
             )
+        scn = bpy.context.scene
+        match_import_fps(filepath, scn.render.fps / scn.render.fps_base)
         os.replace(tmp, filepath)
     finally:
         _final_path = ""
@@ -124,6 +129,31 @@ def export_glb(filepath, use_selection=False):
             pass
     notify_editor(filepath)
     return filepath
+
+
+def match_import_fps(filepath, fps):
+    """Godot resamples imported animations at 30 fps by default; Blender's keys are at the scene's fps.
+    Set RusticEngine's import option for this .glb to the same fps (creating the .import settings if needed;
+    the editor fills in everything else on import)."""
+    if not find_project(filepath):
+        return
+    imp = filepath + ".import"
+    fps_line = f"animation/fps={fps:g}"
+    try:
+        with open(imp, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        text = '[remap]\n\nimporter="scene"\ntype="PackedScene"\n\n[params]\n\n'
+    import re
+    if re.search(r"^animation/fps=.*$", text, re.M):
+        new = re.sub(r"^animation/fps=.*$", fps_line, text, flags=re.M)
+    elif "[params]" in text:
+        new = text.replace("[params]\n", "[params]\n\n" + fps_line + "\n", 1) if "[params]\n\n" not in text else text.replace("[params]\n\n", "[params]\n\n" + fps_line + "\n", 1)
+    else:
+        new = text + "\n[params]\n\n" + fps_line + "\n"
+    if new != text:
+        with open(imp, "w", encoding="utf-8") as f:
+            f.write(new)
 
 
 def notify_editor(filepath):
@@ -200,6 +230,8 @@ class RUSTIC_SceneSettings(bpy.types.PropertyGroup):
                        description="Every time you save the .blend, re-export it to RusticEngine; an open editor updates by itself")
     export_world: BoolProperty(name="Send World", default=True,
                                description="Bring the world (sky or HDRI, background color) and the color management (AgX/Filmic, exposure) into RusticEngine as a WorldEnvironment")
+    deform_only: BoolProperty(name="Deform Bones Only", default=True,
+                              description="Send only the bones that move the mesh (rig controls and helpers stay in Blender; their effect is baked into the animation)")
     auto_bake: BoolProperty(name="Auto-Bake", default=True,
                             description="Materials RusticEngine couldn't rebuild from nodes last time are baked into images on export")
     bake_size: EnumProperty(name="Bake Size", default="1024", items=[("512", "512", ""), ("1024", "1024", ""), ("2048", "2048", ""), ("4096", "4096", "")],
@@ -261,8 +293,22 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         last = context.window_manager.rustic_last_export
         if last:
             col.label(text="Last: " + os.path.basename(last), icon="FILE_3D")
+        self._draw_anim(context)
         self._draw_bake(context)
         refs.draw_panel(self.layout, context)
+
+    def _draw_anim(self, context):
+        acts = [a for a in bpy.data.actions if a.users > 0]
+        if not acts:
+            return
+        box = self.layout.box()
+        box.label(text="Animations", icon="ACTION")
+        box.prop(context.scene.rustic, "deform_only")
+        for a in acts[:12]:
+            row = box.row()
+            row.label(text=a.name)
+            # Blender's own setting: Action > Manual Frame Range + Cyclic Animation
+            row.prop(a, "use_cyclic", text="Loop")
 
     def _draw_bake(self, context):
         box = self.layout.box()

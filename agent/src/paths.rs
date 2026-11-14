@@ -22,6 +22,7 @@ const PATHS: &[(&str, &str)] = &[
     ("art-music", include_str!("../paths/art-music.md")),
     ("art-blender-basics", include_str!("../paths/art-blender-basics.md")),
     ("art-blender-weapon", include_str!("../paths/art-blender-weapon.md")),
+    ("art-blender-character", include_str!("../paths/art-blender-character.md")),
     ("art-blender-armor", include_str!("../paths/art-blender-armor.md")),
     ("art-blender-clutter", include_str!("../paths/art-blender-clutter.md")),
     ("art-blender-building", include_str!("../paths/art-blender-building.md")),

@@ -98,7 +98,27 @@ fn gltf_summary(v: &Value) -> String {
     };
     let mut out = vec![list("nodes", 25), list("meshes", 15), list("materials", 15), list("animations", 30)];
     let skins = v["skins"].as_array().map(|a| a.len()).unwrap_or(0);
-    if skins > 0 { out.push(format!("{skins} skeleton(s): it can be animated.")); }
+    if skins > 0 {
+        let joints: usize = v["skins"].as_array().map(|a| a.iter().map(|s| s["joints"].as_array().map_or(0, |j| j.len())).sum()).unwrap_or(0);
+        out.push(format!("{skins} skeleton(s), {joints} bones: it can be animated."));
+    }
+    let shapes: Vec<String> = v["meshes"].as_array().into_iter().flatten()
+        .flat_map(|m| m["extras"]["targetNames"].as_array().cloned().unwrap_or_default())
+        .filter_map(|n| n.as_str().map(String::from)).collect();
+    if !shapes.is_empty() { out.push(format!("Shape keys (blend shapes): {}", shapes.join(", "))); }
+    // Which animations loop: the add-on sends Blender's Cyclic Animation flag, RusticEngine sets the loop.
+    let acts = &v["scenes"][0]["extensions"]["RUSTIC_blender_actions"]["actions"];
+    if let Some(anims) = v["animations"].as_array().filter(|_| acts.is_object()) {
+        let (mut looped, mut once) = (vec![], vec![]);
+        for a in anims.iter().filter_map(|a| a["name"].as_str()) {
+            if acts[a]["loop"].as_bool().unwrap_or(false) { looped.push(a) } else { once.push(a) }
+        }
+        if !looped.is_empty() { out.push(format!("Loops: {}", looped.join(", "))); }
+        if !once.is_empty() {
+            out.push(format!("Plays once: {} (to loop one, in Blender: Action properties > Manual Frame Range + Cyclic Animation, \
+                              or the Loop box in the RusticEngine panel, then save)", once.join(", ")));
+        }
+    }
     out.push("Godot imports it as a scene: instance it with load::<PackedScene>(\"res://...\") or add it in a .tscn as an ExtResource \
               with type=\"PackedScene\" and `instance=ExtResource(\"id\")`. Animations play through its AnimationPlayer child.".into());
     out.join("\n")

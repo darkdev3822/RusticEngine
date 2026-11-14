@@ -11,6 +11,30 @@ from . import graph
 
 LIGHT_EXT = "RUSTIC_blender_light"
 WORLD_EXT = "RUSTIC_blender_world"
+ACTIONS_EXT = "RUSTIC_blender_actions"
+
+
+def _cyclic(act):
+    """Blender's Cyclic Animation flag, Cycles modifiers on every curve, or a name ending in loop."""
+    if getattr(act, "use_cyclic", False):
+        return True
+    name = act.name.lower()
+    if name.endswith(("loop", "_cycle", "-cycle")):
+        return True
+    curves = list(getattr(act, "fcurves", []) or [])
+    if not curves:   # Blender 4.4+ slotted actions keep curves in layers/strips/channelbags
+        for layer in getattr(act, "layers", []):
+            for strip in layer.strips:
+                for bag in getattr(strip, "channelbags", []):
+                    curves += list(bag.fcurves)
+    return bool(curves) and all(any(m.type == "CYCLES" for m in fc.modifiers) for fc in curves)
+
+
+def actions_data(scene):
+    """Per action (glTF animations are named after them): loop or not, and Blender's frame range and fps."""
+    fps = scene.render.fps / scene.render.fps_base
+    return {"fps": fps, "actions": {a.name: {"loop": _cyclic(a), "start": a.frame_range[0], "end": a.frame_range[1]}
+                                     for a in bpy.data.actions}}
 
 
 def light_data(light):
