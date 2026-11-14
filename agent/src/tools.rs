@@ -112,13 +112,18 @@ pub fn definitions() -> Vec<ToolDef> {
         ToolDef { name: "game_design", description: "Look up game design knowledge: what players love about a game (e.g. 'Dark Souls', 'Stardew Valley') or how a design idea works and feels (e.g. 'coyote time', 'stamina', 'roguelite'), or how a 3D modeling technique works (e.g. 'inset faces', 'loop cut', 'bevel'). Use it to understand what the creator means, then ask them.",
             schema: json!({"type": "object", "properties": {
                 "query": {"type": "string", "description": "A game name or a design idea"}}, "required": ["query"]}) },
+        ToolDef { name: "blender_help", description: "Blender library: how to do something in Blender and the concepts behind it (meshes, vertices/edges/faces, normals, topology, UVs, shaders and nodes, baking textures, sculpting, modifiers, geometry nodes, physics and fluids, terrain, cartography, weapons/armour/architecture references), the exact Blender 5.2 keyboard shortcuts, free CC0 textures/HDRIs/models (Poly Haven, ambientCG) and free Blender extensions. Every answer lists matching shortcuts.",
+            schema: json!({"type": "object", "properties": {
+                "query": {"type": "string", "description": "e.g. 'loop cut', 'bake normal map', 'shortcut extrude', 'rusty metal texture', 'tree generator'"},
+                "kind": {"type": "string", "enum": ["manual", "concept", "keymap", "resource", "extension", "guide"], "description": "Optional: only search one part of the library"}},
+                "required": ["query"]}) },
         ToolDef { name: "journal", description: "The creator's Concept Journal (design/journal/): search it for their ideas, or add a new entry when they ask you to save an idea. Never change their existing entries without asking.",
             schema: json!({"type": "object", "properties": {
                 "action": {"type": "string", "enum": ["search", "add"]},
                 "query": {"type": "string", "description": "search: words to look for"},
                 "title": {"type": "string", "description": "add: the entry's title"},
                 "text": {"type": "string", "description": "add: the entry, in the creator's words"}}, "required": ["action"]}) },
-        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making assets in the Studio (3D models: a prop, a character, an environment kit; sound effects; a pixel art sprite; a music loop). No arguments lists them; a path opens its overview; a path and step opens that step.",
+        ToolDef { name: "game_path", description: "Game Paths and Art Paths: step-by-step courses for making a kind of game (open-world RPG, souls-like, platformer, survival, roguelike, cozy farming, metroidvania, tower defense, turn-based RPG) or making assets in the Studio (3D models: a prop, a character, an environment kit; sound effects; a pixel art sprite; a music loop), or in Blender (foundations and shortcuts, weapons, armour, clutter, modular buildings, UI icons and frames, procedural texturing, baking, water and lava, terrain and nature, fantasy maps). No arguments lists them; a path opens its overview; a path and step opens that step.",
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "e.g. open-world-rpg"},
                 "step": {"type": "integer", "description": "Step number, starting at 1"}}}) },
@@ -203,6 +208,7 @@ pub fn summary(name: &str, args: &Value) -> String {
             (Some(p), Some(n)) => format!("Opening step {n} of the {p} path"),
         },
         "game_design" => format!("Studying the design of {}", args["query"].as_str().unwrap_or("?")),
+        "blender_help" => format!("Looking up {} in the Blender library", args["query"].as_str().unwrap_or("?")),
         "look_at_image" => format!("Looking at {p}"),
         "set_mode" => format!("Switching to {} mode", args["mode"].as_str().unwrap_or("?")),
         other => format!("Using {other}"),
@@ -280,6 +286,7 @@ impl Project {
                 },
             },
             "game_design" => ok(crate::design::search(args["query"].as_str().unwrap_or(""))),
+            "blender_help" => ok(crate::blender::search(args["query"].as_str().unwrap_or(""), args["kind"].as_str().filter(|k| !k.is_empty()))),
             "mechanic" => {
                 let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
                 match s("action").as_str() {

@@ -104,6 +104,42 @@ fn gltf_summary(v: &Value) -> String {
     out.join("\n")
 }
 
+/// For .glb files from the RusticEngine Link Blender add-on: what happened to each Blender material on import,
+/// from the report the editor writes to .godot/rustic/blender/<path with / as _, no extension>.json.
+fn blender_explain(full: &Path, rel: &str, v: &Value) -> String {
+    let from_blender = v["extensionsUsed"].as_array().map(|a| a.iter().any(|x| x == "RUSTIC_blender_nodes")).unwrap_or(false);
+    if !from_blender { return String::new(); }
+    let rel_clean = rel.trim_start_matches("res://").trim_start_matches('/');
+    let mut root = full.to_path_buf();
+    for _ in Path::new(rel_clean).components() { root.pop(); }
+    let stem = rel_clean.rsplit_once('.').map(|(a, _)| a).unwrap_or(rel_clean).replace('/', "_");
+    let report = root.join(".godot/rustic/blender").join(format!("{stem}.json"));
+    let mut out = String::from("\nMade in Blender with the RusticEngine Link add-on: its material node graphs travel inside the file \
+        and the editor rebuilds them as real shaders, so procedural textures stay procedural.");
+    let Some(r) = fs::read(&report).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) else {
+        return out + " The editor hasn't imported it yet (open the project in the editor), so there's no material report.";
+    };
+    out += &format!("\nMaterials: {} rebuilt from Blender nodes, {} kept as the plain standard version.",
+        r["translated"].as_i64().unwrap_or(0), r["kept_standard"].as_i64().unwrap_or(0));
+    for m in r["materials"].as_array().into_iter().flatten() {
+        let name = m["material"].as_str().unwrap_or("?");
+        let list = |k: &str| m[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+        if m["result"] == "translated" {
+            out += &format!("\n- {name}: rebuilt ({} nodes).", m["nodes"].as_i64().unwrap_or(0));
+            let notes = list("notes");
+            if !notes.is_empty() { out += &format!(" Approximations: {notes}"); }
+        } else {
+            out += &format!("\n- {name}: NOT rebuilt, so it shows only its base settings (no procedural detail). Why: {}", list("problems"));
+        }
+    }
+    if r["kept_standard"].as_i64().unwrap_or(0) > 0 {
+        out += "\nTo fix a material that wasn't rebuilt: in Blender, replace the node named in 'Why' with a supported one \
+                (Noise, Checker, Gradient, Image, Color Ramp, Math, Mix and similar), or bake that material to an image texture. \
+                With Live Link on, saving in Blender re-imports it.";
+    }
+    out
+}
+
 fn wav_summary(b: &[u8]) -> Option<String> {
     if b.len() < 44 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" { return None; }
     let (mut i, mut rate, mut chans, mut bits) = (12, 0, 0, 0);
@@ -358,7 +394,7 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
             let vb = t.find("viewBox=\"").map(|i| t[i + 9..].split('"').next().unwrap_or("").to_string()).unwrap_or_default();
             format!("SVG vector image (viewBox {vb}). Godot imports it as a texture; it scales without blurring.")
         }
-        "glb" => glb_json(&b).map(|v| format!("3D model (glTF binary).\n{}", gltf_summary(&v))).unwrap_or("3D model (couldn't read it).".into()),
+        "glb" => glb_json(&b).map(|v| format!("3D model (glTF binary).\n{}{}", gltf_summary(&v), blender_explain(full, rel, &v))).unwrap_or("3D model (couldn't read it).".into()),
         "gltf" => serde_json::from_slice::<Value>(&b).map(|v| format!("3D model (glTF).\n{}", gltf_summary(&v))).unwrap_or("glTF file (couldn't parse it).".into()),
         "rmodel" => serde_json::from_slice::<Value>(&b).map(|v| rmodel_summary(&v, rel)).unwrap_or("Studio model (couldn't parse it).".into()),
         "rsfx" => serde_json::from_slice::<Value>(&b).map(|v| rsfx_summary(&v, rel)).unwrap_or("Studio sound (couldn't parse it).".into()),
@@ -366,7 +402,10 @@ pub fn info(full: &Path, rel: &str) -> Result<String, String> {
         "rmusic" => serde_json::from_slice::<Value>(&b).map(|v| rmusic_summary(&v, rel)).unwrap_or("Studio song (couldn't parse it).".into()),
         "rsky" => serde_json::from_slice::<Value>(&b).map(|v| rsky_summary(&v, rel)).unwrap_or("Studio sky (couldn't parse it).".into()),
         "rui" => serde_json::from_slice::<Value>(&b).map(|v| rui_summary(&v, rel)).unwrap_or("Studio UI kit (couldn't parse it).".into()),
-        "fbx" | "obj" | "blend" | "dae" => format!("3D model ({e}). Godot imports it as a scene (.blend needs Blender installed). \
+        "blend" => "Blender file. RusticEngine doesn't import .blend files directly: keep them OUTSIDE the project and send the scene \
+                     with the RusticEngine Link add-on in Blender (File > Export > RusticEngine, or turn on Live Link so every save updates the game). \
+                     That keeps Blender's procedural materials.".into(),
+        "fbx" | "obj" | "dae" => format!("3D model ({e}). Godot imports it as a scene. \
                                                     If it gives trouble, exporting it as .glb from the modelling program is the most reliable."),
         "wav" => wav_summary(&b).unwrap_or("WAV sound.".into()) + "\nPlay it with an AudioStreamPlayer (or AudioStreamPlayer2D for sound in the world).",
         "ogg" => ogg_summary(&b).unwrap_or("Ogg sound.".into()) + "\nGood for music (it can loop): AudioStreamPlayer with autoplay.",

@@ -22,3 +22,15 @@ Wikipedia excerpts (design.jsonl entries with "kind": "game")
 Design patterns (design.jsonl entries with "kind": "pattern")
   The code in these entries is RusticEngine's own godot-rust code (GPL-3.0), written to show a design
   idea. The "source" field credits the game whose design inspired it; no code from those games is included.
+
+Blender library (blender.jsonl, blender_keys.json; built by training/build_blender_kb.py)
+  - "kind": "manual": the Blender Manual by the Blender Documentation Team, https://docs.blender.org/manual/,
+    CC BY-SA 4.0. Converted from reStructuredText and split by section; each entry links its page.
+  - "kind": "concept": excerpts of Wikipedia articles (https://en.wikipedia.org), CC BY-SA 4.0. Each entry's
+    "url" links its article, whose history lists the authors. Text was split by section and shortened.
+  - "kind": "keymap" and blender_keys.json: Blender 5.2's default keymap, read from Blender (GPL-3.0-or-later).
+  - "kind": "resource": names and links from the Poly Haven (https://polyhaven.com) and ambientCG
+    (https://ambientcg.com) catalogues; the assets themselves are CC0 and are not included.
+  - "kind": "extension": names, taglines and licenses from the Blender Extensions platform
+    (https://extensions.blender.org); the extensions are not included.
+  - "kind": "guide": RusticEngine's own Blender Art Paths (agent/paths/art-blender-*.md, GPL-3.0).

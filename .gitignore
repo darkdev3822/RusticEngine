@@ -29,3 +29,5 @@ training/probe_runs_*.log
 __pycache__/
 tests/blender/out/
 tests/blender/out_live/
+tests/blender/out_refs/
+tests/blender/out_ember/

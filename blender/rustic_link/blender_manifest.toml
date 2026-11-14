@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "rustic_link"
-version = "0.2.0"
+version = "0.3.0"
 name = "RusticEngine Link"
-tagline = "Send your Blender scenes to RusticEngine, procedural materials included"
+tagline = "Send art to RusticEngine with materials, live updates and Ember"
 maintainer = "RusticEngine"
 type = "add-on"
 website = "https://github.com/darkdev3822/RusticEngine"

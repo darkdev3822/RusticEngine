@@ -10,6 +10,7 @@
 //! Also usable from a terminal for testing:
 //!   rustic-agent --project DIR --engine PATH --provider ollama --model qwen2.5-coder:7b --ask "make the player jump"
 //!   rustic-agent --mcp --project DIR    (MCP server over stdio for Claude Code, Codex and other agents)
+mod blender;
 mod assets;
 mod design;
 mod examples;
@@ -367,6 +368,21 @@ impl Session {
                 content += &format!("\n\n[Verified Studio steps for this question. Teach these, in your own words, with the same keys and values; \
                                      add nothing that isn't here or in the reference:\n{}]", how.join("\n\n"));
             }
+        }
+        if context.starts_with("in Blender") {
+            // Asked from the Ember panel inside Blender: ground the answer in the Blender library up front.
+            let found = blender::search(text, None);
+            content += &format!("\n\n[They are asking from inside Blender, about the scene described above. You can't press keys or change \
+                                 their Blender scene: teach it. Give the concept, then numbered steps with the shortcut for every action \
+                                 (\"Loop Cut: Ctrl+R\"), and check their mode and selection from the context first. \
+                                 From blender_help:\n{found}]");
+            let watch = blender::watchouts(context, text);
+            if !watch.is_empty() {
+                // Shown as written, above the answer; the model is told so it doesn't contradict them.
+                emit(json!({"type": "text", "delta": format!("**Before you start:**\n- {}\n\n", watch.join("\n- "))}));
+                content += &format!("\n\n[Already shown to them above your answer (don't repeat, don't contradict):\n- {}]", watch.join("\n- "));
+            }
+            content += "\n\n[After any tool, its options are in the Adjust Last Operation panel at the bottom-left of the 3D Viewport (F9 reopens it).]";
         }
         let mut mech_how: Vec<String> = vec![];
         let mechanic_id = mechanic_in_context(context, text);

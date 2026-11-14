@@ -20,6 +20,17 @@ const PATHS: &[(&str, &str)] = &[
     ("art-sound-effects", include_str!("../paths/art-sound-effects.md")),
     ("art-pixel-sprite", include_str!("../paths/art-pixel-sprite.md")),
     ("art-music", include_str!("../paths/art-music.md")),
+    ("art-blender-basics", include_str!("../paths/art-blender-basics.md")),
+    ("art-blender-weapon", include_str!("../paths/art-blender-weapon.md")),
+    ("art-blender-armor", include_str!("../paths/art-blender-armor.md")),
+    ("art-blender-clutter", include_str!("../paths/art-blender-clutter.md")),
+    ("art-blender-building", include_str!("../paths/art-blender-building.md")),
+    ("art-blender-ui-assets", include_str!("../paths/art-blender-ui-assets.md")),
+    ("art-blender-procedural-texturing", include_str!("../paths/art-blender-procedural-texturing.md")),
+    ("art-blender-baking", include_str!("../paths/art-blender-baking.md")),
+    ("art-blender-water-lava", include_str!("../paths/art-blender-water-lava.md")),
+    ("art-blender-terrain", include_str!("../paths/art-blender-terrain.md")),
+    ("art-blender-fantasy-map", include_str!("../paths/art-blender-fantasy-map.md")),
 ];
 
 fn title(text: &str) -> &str {
@@ -36,7 +47,11 @@ pub fn list() -> String {
         out += &format!("- {id}: {} ({} steps)\n", title(text), steps(text).len());
     }
     out += "Art Paths (making assets yourself in the Studio tab):\n";
-    for (id, text) in PATHS.iter().filter(|(id, _)| id.starts_with("art-")) {
+    for (id, text) in PATHS.iter().filter(|(id, _)| id.starts_with("art-") && !id.starts_with("art-blender-")) {
+        out += &format!("- {id}: {} ({} steps)\n", title(text).trim_start_matches("Art Path: "), steps(text).len());
+    }
+    out += "Blender Art Paths (modeling in Blender, free; start with art-blender-basics if Blender is new):\n";
+    for (id, text) in PATHS.iter().filter(|(id, _)| id.starts_with("art-blender-")) {
         out += &format!("- {id}: {} ({} steps)\n", title(text).trim_start_matches("Art Path: "), steps(text).len());
     }
     out + "Ask which one fits what they want to make (or which is closest), then open it."

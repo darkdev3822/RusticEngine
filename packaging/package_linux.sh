@@ -34,6 +34,16 @@ install -m755 "$BIN/godot.linuxbsd.template_debug.x86_64" "$OUT/templates/linux_
 strip --strip-unneeded "$OUT/rusticengine" "$OUT/templates/"* 2>/dev/null || true
 
 install -m644 "$ROOT/branding/export/rusticengine-256.png" "$OUT/rusticengine.png"
+# The Blender add-on (export with procedural materials, Live Link, reference images, Ember panel).
+python3 - "$ROOT/blender/rustic_link" "$OUT/rusticengine-blender-addon.zip" <<'PY'
+import os, sys, zipfile
+src, dst = sys.argv[1:]
+with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+    for d, dirs, files in os.walk(src):
+        dirs[:] = [x for x in dirs if x != "__pycache__"]
+        for f in files:
+            z.write(os.path.join(d, f), os.path.relpath(os.path.join(d, f), src))
+PY
 cp "$ROOT/LICENSE" "$OUT/LICENSE.txt"
 
 # Third-party notices: Godot (MIT + its bundled libraries), llama.cpp (MIT), Rust crates, data sources.
@@ -74,6 +84,10 @@ First start:
   Models are kept in ~/.local/share/rusticengine/models.
 - Prefer a cloud model (Claude, OpenAI...) or your own? Pick it in the AI Guide settings.
 - Use RusticEngine with Claude Code, Codex or Cursor: Project > Tools > Connect an Outside AI Agent.
+- Make art in Blender (4.2 or newer)? Install rusticengine-blender-addon.zip in Blender: Edit >
+  Preferences > Get Extensions > drop-down > Install from Disk. Then the 3D View sidebar (N) has a
+  RusticEngine tab: export with your node materials, Live Link (every save updates the open editor),
+  reference images that line up by themselves, and Ember. Keep .blend files outside your project.
 
 Licenses: LICENSE.txt (GPL v3) and THIRD_PARTY.txt.
 EOF

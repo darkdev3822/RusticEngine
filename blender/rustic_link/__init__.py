@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -21,7 +21,7 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
-from . import graph
+from . import graph, refs, ember
 
 EXTENSION_NAME = "RUSTIC_blender_nodes"
 _final_path = ""   # real destination while exporting through a temp file
@@ -233,19 +233,21 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         last = context.window_manager.rustic_last_export
         if last:
             col.label(text="Last: " + os.path.basename(last), icon="FILE_3D")
+        refs.draw_panel(self.layout, context)
 
 
 def _menu(self, context):
     self.layout.operator(RUSTIC_OT_export.bl_idname, text="RusticEngine (.glb)")
 
 
-_classes = (RUSTIC_SceneSettings, RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel)
+_classes = refs.classes + (RUSTIC_SceneSettings, RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel) + ember.classes
 
 
 def register():
     for c in _classes:
         bpy.utils.register_class(c)
     bpy.types.WindowManager.rustic_last_export = StringProperty()
+    ember.register()
     bpy.types.Scene.rustic = PointerProperty(type=RUSTIC_SceneSettings)
     bpy.types.TOPBAR_MT_file_export.append(_menu)
     if _on_save not in bpy.app.handlers.save_post:
@@ -258,5 +260,6 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(_menu)
     del bpy.types.Scene.rustic
     del bpy.types.WindowManager.rustic_last_export
+    ember.unregister()
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
