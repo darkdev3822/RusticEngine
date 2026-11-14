@@ -13,6 +13,11 @@ $BLENDER -b --factory-startup --python "$HERE/anim/rig.py" -- "$OUT/proj" > "$OU
 grep -q ANIM_DONE "$OUT/blender.log" || { tail -20 "$OUT/blender.log"; exit 1; }
 "$EDITOR" --headless --path "$OUT/proj" --import > "$OUT/import.log" 2>&1
 "$EDITOR" --headless --path "$OUT/proj" -s "$HERE/anim/check.gd" > "$OUT/engine.log" 2>&1
+$BLENDER -b --factory-startup --python "$HERE/anim/root.py" -- "$OUT/proj" > "$OUT/blender_root.log" 2>&1
+"$EDITOR" --headless --path "$OUT/proj" --import > "$OUT/import_root.log" 2>&1
+"$EDITOR" --headless --path "$OUT/proj" -s "$HERE/anim/check_root.gd" > "$OUT/engine_root.log" 2>&1
+grep "^ROOT_" "$OUT/blender_root.log" "$OUT/engine_root.log" | sed 's|^[^:]*:||'
+grep "^ROOT_ENGINE" "$OUT/engine_root.log" >> "$OUT/engine_root.txt"
 grep "^ANIM_BLENDER" "$OUT/blender.log" > "$OUT/blender.txt"; grep "^ANIM_ENGINE\|SCRIPT ERROR" "$OUT/engine.log" > "$OUT/engine.txt"
 cat "$OUT/engine.txt"
 python3 - "$OUT/blender.txt" "$OUT/engine.txt" <<'PY'
@@ -28,6 +33,10 @@ for k, b in bl.items():
 checks = {"bones": 'bones=["Upper", "Lower"]', "walk loops": "anim=Walk length=1.0000 loop=1", "wave once": "anim=Wave length=0.7917 loop=0",
           "shape key": 'shapes=[&"Smile"]', "smile plays": "smile_end=1.000"}
 fails += [name for name, needle in checks.items() if needle not in en_text]
+root_text = open(sys.argv[2].replace("engine.txt", "engine_root.txt")).read()
+m = re.search(r"half_second_motion=\(([-\d.]+), ([-\d.]+), ([-\d.]+)\) root_bone_pose=\(0.00, 0.00, 0.00\)", root_text)
+if "track=Walker/Skeleton3D:root loop=1" not in root_text or not m or not (0.9 <= float(m.group(3)) <= 1.05) or abs(float(m.group(1))) > 0.02:
+    fails.append("root motion: " + root_text.strip().replace("\n", " | "))
 print("ANIM", "DONE ok" if not fails else "FAILED: " + "; ".join(fails))
 sys.exit(1 if fails else 0)
 PY

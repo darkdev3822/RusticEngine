@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -109,6 +109,13 @@ def export_glb(filepath, use_selection=False):
     _final_path = filepath
     wm = bpy.context.window_manager
     try:
+        # Root-motion bones rarely deform the mesh: keep them through "Deform Bones Only" for the export.
+        kept = []
+        for ob in bpy.context.scene.objects:
+            name = scene_data.root_bone(ob)
+            if name and not ob.data.bones[name].use_deform:
+                ob.data.bones[name].use_deform = True
+                kept.append(ob.data.bones[name])
         # Materials RusticEngine can't rebuild from nodes get baked into images and swapped in for the export.
         with bake.BakeSwap(bpy.context.scene, filepath, use_selection) as baked:
             wm.rustic_bake_note = "; ".join(baked.notes + (["Baked: " + ", ".join(baked.baked)] if baked.baked else []))
@@ -129,6 +136,8 @@ def export_glb(filepath, use_selection=False):
         match_import_fps(filepath, scn.render.fps / scn.render.fps_base)
         os.replace(tmp, filepath)
     finally:
+        for b in locals().get("kept", []):
+            b.use_deform = False
         _final_path = ""
         try:
             os.rmdir(tmp_dir)
@@ -313,6 +322,12 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         box = self.layout.box()
         box.label(text="Animations", icon="ACTION")
         box.prop(context.scene.rustic, "deform_only")
+        arm = context.object if context.object and context.object.type == "ARMATURE" else None
+        if arm:
+            row = box.row()
+            row.prop_search(arm, "rustic_root_bone", arm.data, "bones", text="Root Motion")
+            root = scene_data.root_bone(arm)
+            row.label(text=f"uses {root}" if root else "off (in place)")
         for a in acts[:12]:
             row = box.row()
             row.label(text=a.name)
@@ -355,6 +370,9 @@ def register():
         bpy.utils.register_class(c)
     bpy.types.WindowManager.rustic_last_export = StringProperty()
     bpy.types.WindowManager.rustic_bake_note = StringProperty()
+    bpy.types.Object.rustic_root_bone = StringProperty(
+        name="Root Motion Bone", default="",
+        description="The bone whose movement moves the character in the game (root motion). Empty: a bone named 'root' if there is one; '-' turns it off")
     bpy.types.Material.rustic_bake = BoolProperty(
         name="Always Bake", default=False,
         description="Bake this material into images on every export to RusticEngine (heavy node setups run faster as images)")
@@ -374,6 +392,7 @@ def unregister():
     del bpy.types.Scene.rustic
     del bpy.types.WindowManager.rustic_last_export
     del bpy.types.WindowManager.rustic_bake_note
+    del bpy.types.Object.rustic_root_bone
     del bpy.types.Material.rustic_bake
     ember.unregister()
     collision.unregister()

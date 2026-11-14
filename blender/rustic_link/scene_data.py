@@ -32,11 +32,28 @@ def _cyclic(act):
     return bool(curves) and all(any(m.type == "CYCLES" for m in fc.modifiers) for fc in curves)
 
 
+def root_bone(arm_ob):
+    """The bone whose movement is the character's travel: the one picked in the panel, else a bone named root."""
+    if arm_ob is None or arm_ob.type != "ARMATURE":
+        return ""
+    pick = getattr(arm_ob, "rustic_root_bone", "")
+    if pick == "-":
+        return ""
+    if pick and pick in arm_ob.data.bones:
+        return pick
+    for b in arm_ob.data.bones:
+        if b.parent is None and b.name.lower() in {"root", "root_motion", "rootmotion"}:
+            return b.name
+    return ""
+
+
 def actions_data(scene):
-    """Per action (glTF animations are named after them): loop or not, and Blender's frame range and fps."""
+    """Per action (glTF animations are named after them): loop or not, and Blender's frame range and fps; per
+    armature, its root-motion bone."""
     fps = scene.render.fps / scene.render.fps_base
-    return {"fps": fps, "actions": {a.name: {"loop": _cyclic(a), "start": a.frame_range[0], "end": a.frame_range[1]}
-                                     for a in bpy.data.actions}}
+    roots = {o.name: root_bone(o) for o in scene.objects if o.type == "ARMATURE" and root_bone(o)}
+    return {"fps": fps, "root_motion": roots,
+            "actions": {a.name: {"loop": _cyclic(a), "start": a.frame_range[0], "end": a.frame_range[1]} for a in bpy.data.actions}}
 
 
 def light_data(light):

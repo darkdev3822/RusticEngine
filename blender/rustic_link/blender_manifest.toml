@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "rustic_link"
-version = "0.8.0"
+version = "0.9.0"
 name = "RusticEngine Link"
 tagline = "Send art to RusticEngine with materials, live updates and Ember"
 maintainer = "RusticEngine"
