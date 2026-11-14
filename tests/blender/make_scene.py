@@ -206,16 +206,90 @@ def case_normal_map():
     return mat
 
 
+def _tex(name, kind, out="Color", coord="Generated", **settings):
+    mat, nt, bsdf = new_material(name)
+    tc = node(nt, "ShaderNodeTexCoord")
+    tx = node(nt, kind, **settings)
+    link(nt, tc, coord, tx, "Vector")
+    link(nt, tx, out, bsdf, "Base Color")
+    return mat
+
+
+def case_voronoi_f1():
+    return _tex("voronoi_f1", "ShaderNodeTexVoronoi", "Color", "Object", in_Scale=4.0)
+
+
+def case_voronoi_edge():
+    return _tex("voronoi_edge", "ShaderNodeTexVoronoi", "Distance", "UV", voronoi_dimensions="2D", feature="DISTANCE_TO_EDGE", in_Scale=6.0)
+
+
+def case_voronoi_smooth():
+    return _tex("voronoi_smooth", "ShaderNodeTexVoronoi", "Distance", "Generated", feature="SMOOTH_F1", normalize=True,
+                in_Scale=4.0, in_Detail=2.5, in_Smoothness=0.6)
+
+
+def case_voronoi_f2():
+    return _tex("voronoi_f2", "ShaderNodeTexVoronoi", "Distance", "Generated", feature="F2", distance="MINKOWSKI",
+                in_Scale=5.0, in_Exponent=1.5, in_Randomness=0.8)
+
+
+def case_voronoi_radius():
+    return _tex("voronoi_radius", "ShaderNodeTexVoronoi", "Radius", "UV", voronoi_dimensions="2D", feature="N_SPHERE_RADIUS", in_Scale=5.0)
+
+
+def case_wave_rings():
+    return _tex("wave_rings", "ShaderNodeTexWave", "Color", "Object", wave_type="RINGS", rings_direction="SPHERICAL", wave_profile="SAW",
+                in_Scale=2.0, in_Distortion=4.0, in_Detail=3.0)
+
+
+def case_wave_bands():
+    return _tex("wave_bands", "ShaderNodeTexWave", "Fac", "Generated", bands_direction="DIAGONAL", wave_profile="TRI", in_Scale=3.0)
+
+
+def case_brick():
+    mat = _tex("brick", "ShaderNodeTexBrick", "Color", "UV", offset=0.4, squash=0.8, squash_frequency=3,
+               in_Scale=4.0, in_Mortar_Smooth=0.3, in_Bias=0.1)
+    tx = [n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeTexBrick"][0]
+    tx.inputs["Color1"].default_value = (0.6, 0.2, 0.1, 1)
+    tx.inputs["Color2"].default_value = (0.3, 0.15, 0.1, 1)
+    return mat
+
+
+def case_magic():
+    return _tex("magic", "ShaderNodeTexMagic", "Color", "Generated", turbulence_depth=4, in_Scale=3.0, in_Distortion=2.0)
+
+
+def case_noise_ridged():
+    return _tex("noise_ridged", "ShaderNodeTexNoise", "Fac", "Generated", noise_type="RIDGED_MULTIFRACTAL", in_Scale=3.0, in_Detail=3.5,
+                in_Offset=0.8, in_Gain=1.5)
+
+
+def case_noise_hetero():
+    return _tex("noise_hetero", "ShaderNodeTexNoise", "Color", "Object", noise_type="HETERO_TERRAIN", in_Scale=2.0, in_Detail=2.0,
+                in_Offset=0.3, in_Roughness=0.4)
+
+
+def case_noise_hybrid():
+    return _tex("noise_hybrid", "ShaderNodeTexNoise", "Fac", "UV", noise_dimensions="2D", noise_type="HYBRID_MULTIFRACTAL",
+                in_Scale=4.0, in_Detail=3.0, in_Offset=0.2, in_Gain=1.2)
+
+
+def case_noise_multi():
+    return _tex("noise_multi", "ShaderNodeTexNoise", "Fac", "Generated", noise_type="MULTIFRACTAL", in_Scale=3.0, in_Detail=2.0, in_Roughness=0.3)
+
+
 def case_unsupported():
     mat, nt, bsdf = new_material("unsupported")
-    wv = node(nt, "ShaderNodeTexWave")
+    wv = node(nt, "ShaderNodeTexVoronoi", voronoi_dimensions="4D")
     link(nt, wv, "Color", bsdf, "Base Color")
     return mat
 
 
 CASES = [case_const, case_noise_ramp, case_noise_color, case_noise_2d, case_checker_mapping,
          case_gradient_math_mix, case_vector_math, case_image, case_bump_alpha, case_mix_shader,
-         case_normal_map, case_unsupported]
+         case_normal_map, case_voronoi_f1, case_voronoi_edge, case_voronoi_smooth, case_voronoi_f2, case_voronoi_radius,
+         case_wave_rings, case_wave_bands, case_brick, case_magic, case_noise_ridged, case_noise_hetero, case_noise_hybrid,
+         case_noise_multi, case_unsupported]
 
 
 def main():
