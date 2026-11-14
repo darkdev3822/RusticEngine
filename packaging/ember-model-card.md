@@ -18,6 +18,8 @@ Ember is the AI partner built into **RusticEngine**, a game engine based on Godo
 
 Ember is meant to work *with* a creator rather than build a whole game from one prompt. It asks about the creator's idea and inspirations before making creative choices, explains what it builds when the creator wants to learn, and guides people to make their own art in RusticEngine's Studio instead of making it for them.
 
+**New in RusticEngine 2.0:** Ember also teaches Blender, from modeling concepts to keyboard shortcuts, and can answer questions from inside Blender. That comes from RusticEngine's built-in Blender library and guides, not from retraining: this is the same model as in 1.0.
+
 RusticEngine downloads this model automatically the first time you open the AI Guide. You only need this page if you want to run Ember yourself.
 
 ## What it is
