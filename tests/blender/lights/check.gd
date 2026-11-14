@@ -1,6 +1,6 @@
 extends SceneTree
 # Renders each imported case through its own Blender camera and prints the linear centre colour.
-var cases := ["sun", "point", "spot", "area", "point_orange", "sky_px", "sky_py"]
+var cases := ["sun", "point", "spot", "area", "point_orange", "stex_floor", "stex_wall_sun", "stex_wall_back", "sky_px", "sky_py"]
 var i := -1
 var frame := 0
 var current: Node

@@ -64,6 +64,22 @@ base(); light("SPOT", energy=20.0, shadow_soft_size=0.0, spot_size=math.radians(
 base(); light("AREA", energy=5.0, size=0.5); finish("area")
 base(); light("POINT", energy=10.0, color=(1.0, 0.4, 0.1), shadow_soft_size=0.0); finish("point_orange")
 
+# Sky Texture (Blender's physical sky, baked by the add-on): sun at 30 degrees, rotation 90.
+def sky_world(sc, elev=30, rot=90):
+    nt = sc.world.node_tree
+    sky = nt.nodes.new("ShaderNodeTexSky"); sky.sun_elevation = math.radians(elev); sky.sun_rotation = math.radians(rot)
+    nt.links.new(sky.outputs[0], nt.nodes["Background"].inputs["Color"])
+    nt.nodes["Background"].inputs["Strength"].default_value = 0.02   # what a scene would use with exposure 0
+    sc.view_settings.view_transform = "Standard"
+
+sc = base(); sky_world(sc); finish("stex_floor")
+for name, normal_rot in (("stex_wall_back", (0, math.radians(-90), 0)), ("stex_wall_sun", (0, math.radians(90), 0))):
+    sc = base(); sky_world(sc)
+    pl = bpy.data.objects["Plane"]; pl.scale = (0.05, 0.05, 0.05); pl.rotation_euler = normal_rot   # normal -X, then +X
+    cam = sc.camera; n = 1 if name.endswith("sun") else -1
+    cam.location = (n * 0.5, 0, 0); cam.rotation_euler = (math.radians(90), 0, math.radians(90 if n > 0 else -90))   # look back at the wall
+    finish(name)
+
 # World HDRI: an equirect whose colour marks direction (red faces Blender +X, green +Y, blue -X, white -Y).
 sc = base()
 W, H = 256, 128
@@ -74,11 +90,21 @@ for i, a in enumerate(ang):
     d = (math.cos(a), math.sin(a))
     k = max(range(4), key=lambda j: [d[0], d[1], -d[0], -d[1]][j])
     cols[:, i, :3] = [(0.8, 0.05, 0.05), (0.05, 0.8, 0.05), (0.05, 0.05, 0.8), (0.8, 0.8, 0.8)][k]
-img = bpy.data.images.new("dirs", W, H, float_buffer=True)
-img.pixels = cols.ravel()
-img.filepath_raw = os.path.join(OUT, "proj", "dirs.exr"); img.file_format = "OPEN_EXR"; img.save()
+# Written by hand as Radiance .hdr (RGBE, linear, no colour-space tags), read the same way by Blender and Godot.
+def write_hdr(path, rgb):
+    h, w, _ = rgb.shape
+    m = rgb.max(axis=2)
+    e = np.where(m > 1e-32, np.ceil(np.log2(np.maximum(m, 1e-32))), -128).astype(np.int32)
+    scale = np.where(m > 1e-32, 256.0 / np.exp2(e), 0.0)
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., :3] = np.clip(rgb * scale[..., None], 0, 255).astype(np.uint8)
+    out[..., 3] = np.where(m > 1e-32, e + 128, 0).astype(np.uint8)
+    with open(path, "wb") as f:
+        f.write(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n" + f"-Y {h} +X {w}\n".encode() + out.tobytes())
+hdr_path = os.path.join(OUT, "proj", "dirs.hdr")
+write_hdr(hdr_path, cols[::-1, :, :3])   # .hdr rows go top to bottom; Blender pixels bottom to top
 nt = sc.world.node_tree
-env = nt.nodes.new("ShaderNodeTexEnvironment"); env.image = img
+env = nt.nodes.new("ShaderNodeTexEnvironment"); env.image = bpy.data.images.load(hdr_path)
 nt.links.new(env.outputs["Color"], nt.nodes["Background"].inputs["Color"])
 nt.nodes["Background"].inputs["Strength"].default_value = 1.0
 bpy.data.objects.remove(bpy.data.objects["Plane"])

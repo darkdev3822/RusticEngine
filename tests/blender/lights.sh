@@ -11,7 +11,8 @@ printf 'config_version=5\n[application]\nconfig/name="lights"\n[rendering]\nrend
 $BLENDER -b --factory-startup --python "$HERE/lights/scenes.py" -- "$OUT" > "$OUT/blender.log" 2>&1
 grep -q SCENES_DONE "$OUT/blender.log" || { tail -20 "$OUT/blender.log"; exit 1; }
 "$EDITOR" --headless --path "$OUT/proj" --import > "$OUT/import.log" 2>&1
-xvfb-run -a -s "-screen 0 640x480x24" "$EDITOR" --path "$OUT/proj" --rendering-driver opengl3 --audio-driver Dummy \
+# Forward+ (the default renderer): the Compatibility renderer has no sky ambient from panoramas.
+xvfb-run -a -s "-screen 0 640x480x24" "$EDITOR" --path "$OUT/proj" --rendering-driver vulkan --rendering-method forward_plus --audio-driver Dummy \
 	-s "$HERE/lights/check.gd" > "$OUT/engine.log" 2>&1
 grep "^CYCLES" "$OUT/blender.log" > "$OUT/cycles.txt"; grep "^ENGINE\|SCRIPT ERROR" "$OUT/engine.log" > "$OUT/engine.txt"
 python3 - "$OUT/cycles.txt" "$OUT/engine.txt" <<'PY'
