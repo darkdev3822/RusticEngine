@@ -22,12 +22,17 @@ need "$BIN/godot.linuxbsd.editor.x86_64"
 need "$BIN/godot.linuxbsd.template_release.x86_64"
 need "$BIN/godot.linuxbsd.template_debug.x86_64"
 need "$ROOT/agent/target/release/rustic-agent"
-need "$ROOT/runtime/target-vulkan/release/ember-runtime"
+# The runtime from its build folder, or the copy installed next to the editor (engine/bin) when the
+# runtime hasn't changed and its build folder was cleaned.
+pick() { [[ -f "$1" ]] && echo "$1" || echo "$2"; }
+RUNTIME_VK="$(pick "$ROOT/runtime/target-vulkan/release/ember-runtime" "$BIN/ember-runtime")"
+RUNTIME_CUDA="$(pick "$ROOT/runtime/target/release/ember-runtime" "$BIN/ember-runtime-cuda")"
+need "$RUNTIME_VK"
 
 rm -rf "$OUT" && mkdir -p "$OUT/templates"
 install -m755 "$BIN/godot.linuxbsd.editor.x86_64" "$OUT/rusticengine"
 install -m755 "$ROOT/agent/target/release/rustic-agent" "$OUT/rustic-agent"
-install -m755 "$ROOT/runtime/target-vulkan/release/ember-runtime" "$OUT/ember-runtime"
+install -m755 "$RUNTIME_VK" "$OUT/ember-runtime"
 # Export templates, named the way the export system expects; the editor installs them on first start.
 install -m755 "$BIN/godot.linuxbsd.template_release.x86_64" "$OUT/templates/linux_release.x86_64"
 install -m755 "$BIN/godot.linuxbsd.template_debug.x86_64" "$OUT/templates/linux_debug.x86_64"
@@ -123,10 +128,10 @@ tar -cJf "$NAME.tar.xz" "$NAME"
 sha256sum "$NAME.tar.xz" > "$NAME.tar.xz.sha256"
 
 if [[ "${1:-}" == "--cuda" ]]; then
-  need "$ROOT/runtime/target/release/ember-runtime"
+  need "$RUNTIME_CUDA"
   C="RusticEngine-$VERSION-linux-x86_64-cuda-addon"
   rm -rf "$C" && mkdir -p "$C"
-  install -m755 "$ROOT/runtime/target/release/ember-runtime" "$C/ember-runtime-cuda"
+  install -m755 "$RUNTIME_CUDA" "$C/ember-runtime-cuda"
   echo "Copy ember-runtime-cuda next to rusticengine. On NVIDIA cards Ember then runs ~10% faster." > "$C/README.txt"
   tar -cJf "$C.tar.xz" "$C" && sha256sum "$C.tar.xz" > "$C.tar.xz.sha256"
 fi
