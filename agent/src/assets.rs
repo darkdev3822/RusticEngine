@@ -125,7 +125,8 @@ fn blender_explain(full: &Path, rel: &str, v: &Value) -> String {
         let name = m["material"].as_str().unwrap_or("?");
         let list = |k: &str| m[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("; ")).unwrap_or_default();
         if m["result"] == "translated" {
-            out += &format!("\n- {name}: rebuilt ({} nodes).", m["nodes"].as_i64().unwrap_or(0));
+            let baked = if name.ends_with(" (baked)") { ", baked into images by the add-on" } else { "" };
+            out += &format!("\n- {name}: rebuilt ({} nodes{baked}).", m["nodes"].as_i64().unwrap_or(0));
             let notes = list("notes");
             if !notes.is_empty() { out += &format!(" Approximations: {notes}"); }
         } else {
@@ -133,9 +134,10 @@ fn blender_explain(full: &Path, rel: &str, v: &Value) -> String {
         }
     }
     if r["kept_standard"].as_i64().unwrap_or(0) > 0 {
-        out += "\nTo fix a material that wasn't rebuilt: in Blender, replace the node named in 'Why' with a supported one \
-                (Noise, Checker, Gradient, Image, Color Ramp, Math, Mix and similar), or bake that material to an image texture. \
-                With Live Link on, saving in Blender re-imports it.";
+        out += "\nTo fix a material that wasn't rebuilt: simplest, export (or save with Live Link) once more from Blender: \
+                with Auto-Bake on (RusticEngine panel, on by default) the add-on bakes it into images and the game gets its look. \
+                Or keep it procedural: replace the node named in 'Why' with a supported one (Noise, Voronoi, Wave, Brick, Magic, \
+                Checker, Gradient, Image, Color Ramp, Math, Mix and similar).";
     }
     out
 }

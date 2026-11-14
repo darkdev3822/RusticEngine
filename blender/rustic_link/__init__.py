@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -18,10 +18,10 @@ import time
 
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import BoolProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
-from . import graph, refs, ember
+from . import graph, refs, ember, bake
 
 EXTENSION_NAME = "RUSTIC_blender_nodes"
 _final_path = ""   # real destination while exporting through a temp file
@@ -82,18 +82,22 @@ def export_glb(filepath, use_selection=False):
     os.makedirs(tmp_dir, exist_ok=True)
     tmp = os.path.join(tmp_dir, os.path.basename(filepath))
     _final_path = filepath
+    wm = bpy.context.window_manager
     try:
-        bpy.ops.export_scene.gltf(
-            filepath=tmp,
-            export_format="GLB",
-            use_selection=use_selection,
-            export_apply=True,          # modifiers (incl. Geometry Nodes) as evaluated meshes
-            export_yup=True,
-            export_extras=True,
-            export_cameras=True,
-            export_lights=True,
-            export_materials="EXPORT",
-        )
+        # Materials RusticEngine can't rebuild from nodes get baked into images and swapped in for the export.
+        with bake.BakeSwap(bpy.context.scene, filepath, use_selection) as baked:
+            wm.rustic_bake_note = "; ".join(baked.notes + (["Baked: " + ", ".join(baked.baked)] if baked.baked else []))
+            bpy.ops.export_scene.gltf(
+                filepath=tmp,
+                export_format="GLB",
+                use_selection=use_selection,
+                export_apply=True,          # modifiers (incl. Geometry Nodes) as evaluated meshes
+                export_yup=True,
+                export_extras=True,
+                export_cameras=True,
+                export_lights=True,
+                export_materials="EXPORT",
+            )
         os.replace(tmp, filepath)
     finally:
         _final_path = ""
@@ -177,6 +181,10 @@ class RUSTIC_OT_export(bpy.types.Operator, ExportHelper):
 class RUSTIC_SceneSettings(bpy.types.PropertyGroup):
     live: BoolProperty(name="Live Link", default=False,
                        description="Every time you save the .blend, re-export it to RusticEngine; an open editor updates by itself")
+    auto_bake: BoolProperty(name="Auto-Bake", default=True,
+                            description="Materials RusticEngine couldn't rebuild from nodes last time are baked into images on export")
+    bake_size: EnumProperty(name="Bake Size", default="1024", items=[("512", "512", ""), ("1024", "1024", ""), ("2048", "2048", ""), ("4096", "4096", "")],
+                            description="Size of baked images")
     target: StringProperty(name="Export Path", subtype="FILE_PATH",
                            description="Where this .blend is exported (set by the first export)")
 
@@ -233,7 +241,31 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         last = context.window_manager.rustic_last_export
         if last:
             col.label(text="Last: " + os.path.basename(last), icon="FILE_3D")
+        self._draw_bake(context)
         refs.draw_panel(self.layout, context)
+
+    def _draw_bake(self, context):
+        box = self.layout.box()
+        row = box.row()
+        row.prop(context.scene.rustic, "auto_bake")
+        row.prop(context.scene.rustic, "bake_size", text="")
+        target = default_target(context)
+        plain = bake.plain_materials(target) if target else {}
+        if plain:
+            box.label(text="Came in plain last time:", icon="ERROR")
+            for name, why in plain.items():
+                r = box.row()
+                r.label(text=name, icon="MATERIAL")
+                r.label(text=why[:48])
+            if not context.scene.rustic.auto_bake:
+                box.label(text="Turn on Auto-Bake (or Always Bake) and export again")
+        mat = context.object.active_material if context.object else None
+        if mat:
+            box.prop(mat, "rustic_bake", text=f"Always bake '{mat.name}'")
+        note = context.window_manager.rustic_bake_note
+        if note:
+            for line in note.split("; ")[:4]:
+                box.label(text=line[:70], icon="IMAGE_DATA")
 
 
 def _menu(self, context):
@@ -247,6 +279,10 @@ def register():
     for c in _classes:
         bpy.utils.register_class(c)
     bpy.types.WindowManager.rustic_last_export = StringProperty()
+    bpy.types.WindowManager.rustic_bake_note = StringProperty()
+    bpy.types.Material.rustic_bake = BoolProperty(
+        name="Always Bake", default=False,
+        description="Bake this material into images on every export to RusticEngine (heavy node setups run faster as images)")
     ember.register()
     bpy.types.Scene.rustic = PointerProperty(type=RUSTIC_SceneSettings)
     bpy.types.TOPBAR_MT_file_export.append(_menu)
@@ -260,6 +296,8 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(_menu)
     del bpy.types.Scene.rustic
     del bpy.types.WindowManager.rustic_last_export
+    del bpy.types.WindowManager.rustic_bake_note
+    del bpy.types.Material.rustic_bake
     ember.unregister()
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)

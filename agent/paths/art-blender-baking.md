@@ -26,6 +26,6 @@
 **Done when:** Crevices are darker and your dirt mask uses the AO.
 
 ## Step 6: Bake a procedural material to images
-**Build:** For materials RusticEngine can't rebuild (the AO node, Pointiness, 4D/animated noise...), bake each output to an image on the low poly: bake type Diffuse with only Color ticked for base color (or route the color into an Emission shader and bake Emit for exact colors), Roughness for roughness, Normal for bumps. Then make a simple material using the baked images.
+**Build:** The RusticEngine add-on does this for you: with Auto-Bake on (RusticEngine tab, N panel), materials the engine couldn't rebuild are baked into images on the next export, and 'Always bake' does it for any material (heavy node setups run faster as images). Do it by hand once anyway, so you know what it does: for materials RusticEngine can't rebuild (the AO node, Pointiness, 4D/animated noise...), bake each output to an image on the low poly: bake type Diffuse with only Color ticked for base color (or route the color into an Emission shader and bake Emit for exact colors), Roughness for roughness, Normal for bumps. Then make a simple material using the baked images.
 **You'll learn:** Baking is the universal escape hatch: anything Blender can render, the game can show as an image.
 **Done when:** The baked material looks the same in RusticEngine as the procedural one in Blender.

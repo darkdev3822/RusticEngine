@@ -31,3 +31,4 @@ tests/blender/out/
 tests/blender/out_live/
 tests/blender/out_refs/
 tests/blender/out_ember/
+tests/blender/out_bake/
