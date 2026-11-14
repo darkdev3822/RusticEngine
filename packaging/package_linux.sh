@@ -12,7 +12,7 @@
 # time they're needed (GitHub caps release files at 2 GB).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-2.0.0}"
 NAME="RusticEngine-$VERSION-linux-x86_64"
 OUT="$ROOT/dist/$NAME"
 BIN="$ROOT/engine/bin"
@@ -60,6 +60,12 @@ cp "$ROOT/LICENSE" "$OUT/LICENSE.txt"
       python3 -c 'import json,sys
 for p in json.load(sys.stdin)["packages"]: print(p["name"], p["version"] + ":", p.get("license") or "see crate")'
   done | sort -u
+  echo
+  echo "== Blender (GPL-2.0-or-later) =="
+  echo "RusticEngine's Blender material translation ports Blender's GPU shader node functions (hash, Perlin noise,"
+  echo "fractal noise, Voronoi, Wave, Brick, Magic, color mixing) from https://projects.blender.org/blender/blender"
+  echo "(source/blender/gpu/shaders), Copyright Blender Authors, GPL-2.0-or-later, used under GPL-3.0."
+  echo "The mannequin in the Animated Character mechanic was made for RusticEngine (blender/tools/make_mannequin.py), CC0."
   echo
   echo "== Ember's reference library =="; cat "$ROOT/agent/examples/NOTICE"; echo
   echo "== Models (downloaded on first use, not included in this archive) =="

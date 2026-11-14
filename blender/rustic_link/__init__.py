@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 9, 0),
+    "version": (2, 0, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",

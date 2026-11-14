@@ -17,8 +17,9 @@ RusticEngine is for people who have always wanted to make a game and learn by ma
 
 - **Rust by default.** New projects are Rust projects. Press Play and RusticEngine builds your code; Ember can explain any build error.
 - **Ember, your AI partner.** Runs on your own computer (no account, no cloud). Two modes: *Learning* (Ember teaches as you build together) and *Autonomous* (Ember does the heavy lifting while you direct). Ember reads your code, builds and playtests it, looks at your concept art, keeps a Concept Journal of your ideas, and offers Game Paths: step-by-step routes from first idea to finished game.
-- **Mechanics.** Game mechanics as self-contained parts you can add, try in their own test room, tune with sliders while the game runs, and have explained to you. Starters: first-person and third-person controllers, character stats, attacks and damage, inventory, HUD. Ask Ember for a new one (a dash, a door, checkpoints, a patrolling enemy...) and it starts from tested, working code.
+- **Mechanics.** Game mechanics as self-contained parts you can add, try in their own test room, tune with sliders while the game runs, and have explained to you. Starters: first-person and third-person controllers, an animated character (idle/walk/run blending), character stats, attacks and damage, inventory, HUD. Ask Ember for a new one (a dash, a door, checkpoints, a patrolling enemy...) and it starts from tested, working code.
 - **The Studio.** Simple tools for making your own assets inside the engine: a low-poly 3D modeler, sound effects, music, pixel art, skies with time of day, and UI kits. Ember guides you through them but never makes the art for you.
+- **Blender, connected.** Install the RusticEngine add-on in Blender (it ships in the release) and your art comes into the game the way it looks in Blender: procedural materials rebuilt as game shaders (Noise, Voronoi, Wave, Brick, Magic and more), anything else baked into textures automatically, lights and skies matched to Cycles, animations with loops and root motion, collision from Blender's Rigid Body settings, and hand-made LODs. With Live Link, every Ctrl+S in Blender updates the open editor. Reference images line up by themselves, and Ember answers from inside Blender, sees what you're working on, and drills the shortcuts. Ember also knows the Blender Manual and teaches the concepts behind modeling, with 12 Blender Art Paths (weapons, armor, buildings, clutter, terrain, water and lava, fantasy maps, animated characters...).
 - **Any AI you like.** Ember is the default, but you can switch to a cloud model (Claude, OpenAI and others) or any local GGUF model in the AI Guide settings. Agents like Claude Code, Codex and Cursor can work on your project with the same tools through MCP (Project > Tools > Connect an Outside AI Agent).
 - **Export your game** for Linux, with your Rust code built in release mode.
 
@@ -28,12 +29,14 @@ RusticEngine is for people who have always wanted to make a game and learn by ma
 
 ## Get started
 
-1. Download `RusticEngine-1.0.0-linux-x86_64.tar.xz` from [Releases](https://github.com/darkdev3822/RusticEngine/releases/latest) and extract it.
+1. Download `RusticEngine-2.0.0-linux-x86_64.tar.xz` from [Releases](https://github.com/darkdev3822/RusticEngine/releases/latest) and extract it.
 2. Run `./rusticengine` (optionally `./install-desktop-entry.sh` to add it to your app menu).
 3. On first start:
    - If Rust isn't installed, RusticEngine offers to install it with the official rustup installer (~250 MB, no admin password needed).
    - The first time you talk to Ember, it downloads its model ([Ember 8B](https://huggingface.co/johangdarkdev/Ember-8B-GGUF), ~5.5 GB, once).
    - The first time Ember looks at a picture, it downloads a picture-reading model (~3 GB, once).
+
+**Blender (optional):** in Blender 4.2 or newer, Edit > Preferences > Get Extensions > drop-down > Install from Disk, and pick `rusticengine-blender-addon.zip` from the release folder. The RusticEngine tab is in the 3D View's sidebar (N). Keep your .blend files outside the game project.
 
 **Requirements:** Linux x86_64. For Ember, a graphics card with 6 GB of memory or more (NVIDIA, AMD or Intel, through Vulkan) is recommended; it also runs on the CPU, slowly. NVIDIA owners can add the optional CUDA runtime from the release for extra speed. Windows and macOS are planned.
 
@@ -60,6 +63,7 @@ You need the usual [Godot build dependencies](https://docs.godotengine.org/en/st
 | Folder | What's in it |
 |---|---|
 | `engine/` | The engine (submodule): Godot 4.7 plus `modules/rustic` (Rust projects, Ember's dock, the Studio, Mechanics) |
+| `blender/` | The Blender add-on (`rustic_link`) and tools that generate bundled assets |
 | `agent/` | `rustic-agent`, Ember's tools and harness (also an MCP server) |
 | `runtime/` | `ember-runtime`, runs GGUF models in-process with llama.cpp (Vulkan or CUDA) |
 | `training/` | How Ember was trained and is evaluated |
@@ -68,4 +72,4 @@ You need the usual [Godot build dependencies](https://docs.godotengine.org/en/st
 
 ## License
 
-RusticEngine is licensed under the [GNU GPL v3](LICENSE). It builds on Godot Engine (MIT), godot-rust (MPL-2.0), llama.cpp (MIT) and Qwen3 (Apache-2.0); the release's `THIRD_PARTY.txt` lists every component and its license. The Ember model is Apache-2.0.
+RusticEngine is licensed under the [GNU GPL v3](LICENSE). It builds on Godot Engine (MIT), godot-rust (MPL-2.0), llama.cpp (MIT), Qwen3 (Apache-2.0) and shader code ported from Blender (GPL-2.0-or-later); the release's `THIRD_PARTY.txt` lists every component and its license. The Ember model is Apache-2.0.
