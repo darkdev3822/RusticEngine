@@ -5,7 +5,7 @@
 bl_info = {
     "name": "RusticEngine Link",
     "author": "RusticEngine",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > RusticEngine (.glb) | 3D View > Sidebar > RusticEngine",
     "description": "Send scenes to RusticEngine with procedural materials intact",
@@ -21,7 +21,7 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
-from . import graph, refs, ember, bake, scene_data
+from . import graph, refs, ember, bake, scene_data, collision
 
 EXTENSION_NAME = "RUSTIC_blender_nodes"
 _final_path = ""   # real destination while exporting through a temp file
@@ -49,6 +49,10 @@ class glTF2ExportUserExtension:
     def gather_node_hook(self, gltf2_node, blender_object, export_settings):
         if blender_object is not None and getattr(blender_object, "type", "") == "LIGHT":
             self._add(gltf2_node, scene_data.LIGHT_EXT, scene_data.light_data(blender_object.data))
+        if blender_object is not None and getattr(blender_object, "type", "") == "MESH":
+            col = collision.collision_data(blender_object)
+            if col:
+                self._add(gltf2_node, collision.EXT, col)
 
     def gather_scene_hook(self, gltf2_scene, blender_scene, export_settings):
         if blender_scene is not None:
@@ -293,6 +297,7 @@ class RUSTIC_PT_panel(bpy.types.Panel):
         last = context.window_manager.rustic_last_export
         if last:
             col.label(text="Last: " + os.path.basename(last), icon="FILE_3D")
+        collision.draw_panel(self.layout, context)
         self._draw_anim(context)
         self._draw_bake(context)
         refs.draw_panel(self.layout, context)
@@ -338,7 +343,7 @@ def _menu(self, context):
     self.layout.operator(RUSTIC_OT_export.bl_idname, text="RusticEngine (.glb)")
 
 
-_classes = refs.classes + (RUSTIC_SceneSettings, RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel) + ember.classes
+_classes = refs.classes + (RUSTIC_SceneSettings, RUSTIC_Preferences, RUSTIC_OT_export, RUSTIC_PT_panel) + ember.classes + collision.classes
 
 
 def register():
@@ -350,6 +355,7 @@ def register():
         name="Always Bake", default=False,
         description="Bake this material into images on every export to RusticEngine (heavy node setups run faster as images)")
     ember.register()
+    collision.register()
     bpy.types.Scene.rustic = PointerProperty(type=RUSTIC_SceneSettings)
     bpy.types.TOPBAR_MT_file_export.append(_menu)
     if _on_save not in bpy.app.handlers.save_post:
@@ -365,5 +371,6 @@ def unregister():
     del bpy.types.WindowManager.rustic_bake_note
     del bpy.types.Material.rustic_bake
     ember.unregister()
+    collision.unregister()
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)

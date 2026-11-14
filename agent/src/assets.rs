@@ -106,6 +106,24 @@ fn gltf_summary(v: &Value) -> String {
         .flat_map(|m| m["extras"]["targetNames"].as_array().cloned().unwrap_or_default())
         .filter_map(|n| n.as_str().map(String::from)).collect();
     if !shapes.is_empty() { out.push(format!("Shape keys (blend shapes): {}", shapes.join(", "))); }
+    // Collision set up in Blender (rigid bodies, triggers): what each object becomes in the game.
+    let cols: Vec<String> = v["nodes"].as_array().into_iter().flatten().filter_map(|n| {
+        let c = &n["extensions"]["RUSTIC_blender_collision"];
+        if !c.is_object() { return None; }
+        let body = match c["body"].as_str().unwrap_or("static") {
+            "rigid" => format!("physics body (RigidBody3D, {} kg)", c["mass"].as_f64().map_or("1".into(), |m| format!("{m:.3}").trim_end_matches('0').trim_end_matches('.').to_string())),
+            "kinematic" => "moving platform (AnimatableBody3D)".to_string(),
+            "trigger" => "trigger zone (Area3D: connect body_entered)".to_string(),
+            _ => "static collider (StaticBody3D)".to_string(),
+        };
+        let shape = c["shape"].as_str().unwrap_or("").to_lowercase().replace('_', " ");
+        let only = if c["collision_only"].as_bool().unwrap_or(false) { ", invisible" } else { "" };
+        Some(format!("{}: {body}, {shape} shape{only}", n["name"].as_str().unwrap_or("?")))
+    }).collect();
+    if !cols.is_empty() {
+        out.push(format!("Collision (from Blender's Rigid Body settings): {}. Each becomes a body named after the object, \
+                          its visible mesh a child named Mesh.", cols.join("; ")));
+    }
     // Which animations loop: the add-on sends Blender's Cyclic Animation flag, RusticEngine sets the loop.
     let acts = &v["scenes"][0]["extensions"]["RUSTIC_blender_actions"]["actions"];
     if let Some(anims) = v["animations"].as_array().filter(|_| acts.is_object()) {
